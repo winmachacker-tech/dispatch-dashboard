@@ -5,6 +5,11 @@ import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/dashboard";
 import LoadsPage from "./pages/loads";
 import TrucksPage from "./pages/trucks";
+import DeliveredPage from "./pages/delivered";
+
+
+// ✅ ADD THIS IMPORT
+import InTransit from "./pages/InTransit";
 
 export default function App() {
   return (
@@ -29,6 +34,11 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/loads" element={<LoadsPage />} />
               <Route path="/trucks" element={<TrucksPage />} />
+              <Route path="/delivered" element={<DeliveredPage />} />
+
+
+              {/* ✅ ADD THIS NEW ROUTE */}
+              <Route path="/in-transit" element={<InTransit />} />
             </Routes>
           </main>
         </div>

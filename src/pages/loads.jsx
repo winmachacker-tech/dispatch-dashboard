@@ -1,7 +1,7 @@
-// src/pages/Loads.jsx
+// src/pages/loads.jsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { PlusCircle, Loader2, Trash2 } from "lucide-react";
+import { PlusCircle, Loader2, Trash2, CheckCheck } from "lucide-react";
 
 const STATUSES = ["PLANNED", "IN_TRANSIT", "DELIVERED", "CANCELLED"];
 
@@ -9,6 +9,7 @@ export default function Loads() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [rows, setRows] = useState([]);
+  const [updatingId, setUpdatingId] = useState(null); // 👈 for the action button state
   const [form, setForm] = useState({
     shipper: "",
     origin: "",
@@ -24,7 +25,7 @@ export default function Loads() {
       setLoading(true);
       const { data, error } = await supabase
         .from("loads")
-        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
+        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status, updated_at")
         .order("created_at", { ascending: false });
       if (!ignore) {
         if (error) console.error(error);
@@ -74,6 +75,31 @@ export default function Loads() {
     }
   }
 
+  // 👇 NEW: mark as delivered
+  async function markAsDelivered(id) {
+    try {
+      setUpdatingId(id);
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from("loads")
+        .update({ status: "DELIVERED", updated_at: nowIso })
+        .eq("id", id);
+      if (error) throw error;
+
+      // Optimistic UI
+      setRows((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: "DELIVERED", updated_at: nowIso } : r))
+      );
+      // If you want to hide delivered rows from this page immediately, uncomment:
+      // setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      console.error("Failed to mark delivered:", e);
+      alert("Could not mark as delivered.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -117,7 +143,7 @@ export default function Loads() {
                 <th className="px-3 py-2">Dispatcher</th>
                 <th className="px-3 py-2 text-right">Rate</th>
                 <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2 w-[56px]"></th>
+                <th className="px-3 py-2 w-[140px]">Actions</th> {/* 👈 widened for two buttons */}
               </tr>
             </thead>
             <tbody>
@@ -134,10 +160,32 @@ export default function Loads() {
                   <td className="px-3 py-2">{r.dispatcher || "—"}</td>
                   <td className="px-3 py-2 text-right">${Number(r.rate).toFixed(2)}</td>
                   <td className="px-3 py-2">{r.status}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => onDelete(r.id)} className="p-2 rounded hover:bg-gray-100" title="Delete">
-                      <Trash2 size={16} />
-                    </button>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => markAsDelivered(r.id)}
+                        disabled={r.status === "DELIVERED" || updatingId === r.id}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={r.status === "DELIVERED" ? "Already delivered" : "Mark as Delivered"}
+                      >
+                        {updatingId === r.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <CheckCheck className="w-4 h-4" />
+                        )}
+                        <span className="hidden sm:inline">
+                          {r.status === "DELIVERED" ? "Delivered" : "Mark Delivered"}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() => onDelete(r.id)}
+                        className="p-2 rounded hover:bg-gray-100"
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,12 +1,22 @@
 // src/components/Sidebar.jsx
+// src/components/Sidebar.jsx
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Truck, PackageSearch } from "lucide-react";
+import {
+  LayoutDashboard,
+  Truck,
+  PackageSearch,
+  Route as RouteIcon,
+  PackageCheck,            // 👈 add this
+} from "lucide-react";
 
 const items = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={18} /> },
   { to: "/loads", label: "Loads", icon: <PackageSearch size={18} /> },
   { to: "/trucks", label: "Trucks", icon: <Truck size={18} /> },
+  { to: "/in-transit", label: "In Transit", icon: <RouteIcon size={18} /> },
+  { to: "/delivered", label: "Delivered", icon: <PackageCheck size={18} /> }, // 👈 new
 ];
+
 
 export default function Sidebar() {
   const base =
