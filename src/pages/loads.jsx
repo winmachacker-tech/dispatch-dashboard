@@ -1,6 +1,6 @@
 // src/pages/Loads.jsx
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "../lib/supabase";
 import { PlusCircle, Loader2, Trash2 } from "lucide-react";
 
 const STATUSES = ["PLANNED", "IN_TRANSIT", "DELIVERED", "CANCELLED"];

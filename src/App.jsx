@@ -1,26 +1,38 @@
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
-import DispatchDashboard from "./DispatchDashboard";
+import { Routes, Route, Link } from "react-router-dom";
+import ThemeToggle from "./components/ThemeToggle";
+import Sidebar from "./components/Sidebar";
+
+import DashboardPage from "./pages/dashboard";
+import LoadsPage from "./pages/loads";
 import TrucksPage from "./pages/trucks";
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-neutral-950 text-neutral-100">
-        <nav className="flex items-center gap-4 p-4 border-b border-neutral-800">
-          <NavLink to="/" className={({ isActive }) => isActive ? "font-semibold" : "opacity-80 hover:opacity-100"}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/trucks" className={({ isActive }) => isActive ? "font-semibold" : "opacity-80 hover:opacity-100"}>
-            Trucks
-          </NavLink>
-        </nav>
-        <main className="p-4">
-          <Routes>
-            <Route path="/" element={<DispatchDashboard />} />
-            <Route path="/trucks" element={<TrucksPage />} />
-          </Routes>
-        </main>
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 transition-colors">
+      <div className="flex">
+        {/* LEFT SIDEBAR */}
+        <Sidebar />
+
+        {/* RIGHT CONTENT COLUMN */}
+        <div className="flex-1 min-w-0">
+          {/* TOP HEADER */}
+          <header className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/80 backdrop-blur-md">
+            <h1 className="text-xl font-semibold">
+              <Link to="/">Dispatch Dashboard</Link>
+            </h1>
+            <ThemeToggle />
+          </header>
+
+          {/* PAGE CONTENT */}
+          <main className="p-6">
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/loads" element={<LoadsPage />} />
+              <Route path="/trucks" element={<TrucksPage />} />
+            </Routes>
+          </main>
+        </div>
       </div>
-    </BrowserRouter>
+    </div>
   );
 }

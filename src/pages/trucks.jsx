@@ -1,13 +1,15 @@
+// src/pages/trucks.jsx
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
+// Inline badge
 function StatusBadge({ status }) {
-  const styles = {
-    ACTIVE: "bg-green-500/15 text-green-300 border-green-500/30",
-    MAINTENANCE: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
-    INACTIVE: "bg-red-500/15 text-red-300 border-red-500/30",
-  }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
-
+  const styles =
+    {
+      ACTIVE: "bg-green-500/15 text-green-300 border-green-500/30",
+      MAINTENANCE: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+      INACTIVE: "bg-red-500/15 text-red-300 border-red-500/30",
+    }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs border ${styles}`}>
       {status}
@@ -15,318 +17,486 @@ function StatusBadge({ status }) {
   );
 }
 
-export default function TrucksPage() {
+export default function Trucks() {
   const [trucks, setTrucks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // modal state
-  const [open, setOpen] = useState(false);
+  // Edit
+  const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // form state
-  const [form, setForm] = useState({
+  // Delete
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Create
+  const [creating, setCreating] = useState(false);
+  const [newTruck, setNewTruck] = useState({
     unit_number: "",
+    plate: "",
     make: "",
     model: "",
     year: "",
-    plate: "",
     vin: "",
     status: "ACTIVE",
-    notes: "",
   });
+  const [creatingNow, setCreatingNow] = useState(false);
 
-  const fetchTrucks = async () => {
+  // ---- Fetch ----
+  async function fetchTrucks() {
     setLoading(true);
+    setError(null);
     const { data, error } = await supabase
       .from("trucks")
-      .select("*")
-      .order("unit_number", { ascending: true });
+      .select("*", { head: false, count: "exact" })
+      .order("created_at", { ascending: false });
 
     if (error) setError(error.message);
     else setTrucks(data || []);
     setLoading(false);
-  };
+  }
 
   useEffect(() => {
     fetchTrucks();
   }, []);
 
-  const onChange = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
+  // ---- Edit ----
+  function openEdit(truck) {
+    setEditing({ ...truck });
+  }
+  function closeEdit() {
+    setEditing(null);
+  }
 
-  const onSubmit = async (e) => {
+  async function saveEdit(e) {
     e.preventDefault();
-    if (!form.unit_number.trim()) {
-      alert("Unit number is required");
-      return;
-    }
+    if (!editing?.id) return;
 
     setSaving(true);
-    const payload = {
-      unit_number: form.unit_number.trim(),
-      make: form.make.trim() || null,
-      model: form.model.trim() || null,
-      year: form.year ? Number(form.year) : null,
-      plate: form.plate.trim() || null,
-      vin: form.vin.trim() || null,
-      status: form.status,
-      notes: form.notes.trim() || null,
-    };
+    setError(null);
 
-    const { error } = await supabase.from("trucks").insert(payload);
-    setSaving(false);
+    const { error: updErr } = await supabase
+      .from("trucks")
+      .update({
+        unit_number: editing.unit_number?.trim(),
+        vin: editing.vin?.trim() || null,
+        plate: editing.plate?.trim() || null,
+        make: editing.make?.trim() || null,
+        model: editing.model?.trim() || null,
+        year:
+          editing.year === "" || editing.year == null ? null : Number(editing.year),
+        status: editing.status || "ACTIVE",
+      })
+      .eq("id", editing.id);
 
-    if (error) {
-      alert("Insert failed: " + error.message);
+    if (updErr) {
+      setSaving(false);
+      setError(updErr.message);
       return;
     }
-    setForm({
+
+    await fetchTrucks();
+    setSaving(false);
+    closeEdit();
+  }
+
+  // ---- Delete ----
+  function confirmDelete(id) {
+    setPendingDelete(id);
+  }
+  function cancelDelete() {
+    setPendingDelete(null);
+  }
+  async function doDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setError(null);
+
+    const { error } = await supabase.from("trucks").delete().eq("id", pendingDelete);
+    setDeleting(false);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setTrucks((prev) => prev.filter((t) => t.id !== pendingDelete));
+    setPendingDelete(null);
+  }
+
+  // ---- Create ----
+  function openCreate() {
+    setNewTruck({
       unit_number: "",
+      plate: "",
       make: "",
       model: "",
       year: "",
-      plate: "",
       vin: "",
       status: "ACTIVE",
-      notes: "",
     });
-    setOpen(false);
+    setCreating(true);
+  }
+  function closeCreate() {
+    setCreating(false);
+  }
+  async function saveCreate(e) {
+    e.preventDefault();
+    setCreatingNow(true);
+    setError(null);
+
+    const payload = {
+      unit_number: newTruck.unit_number.trim(),
+      plate: newTruck.plate?.trim() || null,
+      make: newTruck.make?.trim() || null,
+      model: newTruck.model?.trim() || null,
+      year:
+        newTruck.year === "" || newTruck.year == null
+          ? null
+          : Number(newTruck.year),
+      vin: newTruck.vin?.trim() || null,
+      status: newTruck.status || "ACTIVE",
+    };
+
+    const { error: insErr } = await supabase.from("trucks").insert(payload);
+    setCreatingNow(false);
+
+    if (insErr) {
+      setError(insErr.message);
+      return;
+    }
+
     await fetchTrucks();
-  };
+    closeCreate();
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Trucks</h1>
-          <p className="text-sm text-neutral-400">
-            Fleet overview. Filters and actions coming next.
-          </p>
-        </div>
-
-        <div className="flex gap-2">
+    <div className="p-6">
+      <header className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold text-white/90">Trucks</h1>
+        <div className="flex items-center gap-2">
           <button
-            className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-sm"
-            type="button"
-            onClick={() => alert("Export coming soon")}
+            onClick={openCreate}
+            className="px-3 py-2 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 bg-white/0 hover:bg-emerald-500/10"
           >
-            Export CSV
+            Add Truck
           </button>
           <button
-            className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-medium"
-            type="button"
-            onClick={() => setOpen(true)}
+            onClick={fetchTrucks}
+            className="px-3 py-2 text-sm rounded-lg border border-white/10 bg-white/5 hover:bg-white/10"
           >
-            + Add Truck
+            Refresh
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Card */}
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 shadow-lg">
-        <div className="px-4 py-3 border-b border-neutral-800">
-          <h2 className="text-sm font-medium text-neutral-300">Fleet List</h2>
+      {error && (
+        <div className="mb-3 text-sm text-red-300 bg-red-500/10 border border-red-500/30 px-3 py-2 rounded">
+          {error}
         </div>
+      )}
 
-        <div className="p-4">
-          {loading && <p className="text-neutral-400">Loading…</p>}
-          {error && <p className="text-red-400">Error: {error}</p>}
-
-          {!loading && !error && trucks.length === 0 && (
-            <p className="text-neutral-400">No trucks yet.</p>
-          )}
-
-          {!loading && !error && trucks.length > 0 && (
-            <div className="overflow-auto max-h-[65vh] rounded-xl">
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-neutral-900/80 backdrop-blur border-b border-neutral-800">
-                  <tr className="text-neutral-300">
-                    <th className="px-3 py-2 font-medium">Unit</th>
-                    <th className="px-3 py-2 font-medium">Make / Model</th>
-                    <th className="px-3 py-2 font-medium">Year</th>
-                    <th className="px-3 py-2 font-medium">Plate</th>
-                    <th className="px-3 py-2 font-medium">VIN</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-800">
-                  {trucks.map((t) => (
-                    <tr
-                      key={t.id}
-                      className="odd:bg-neutral-900/30 even:bg-transparent hover:bg-neutral-900/50 transition-colors"
-                    >
-                      <td className="px-3 py-2">{t.unit_number}</td>
-                      <td className="px-3 py-2">
-                        {[t.make, t.model].filter(Boolean).join(" ") || "—"}
-                      </td>
-                      <td className="px-3 py-2">{t.year ?? "—"}</td>
-                      <td className="px-3 py-2">{t.plate ?? "—"}</td>
-                      <td className="px-3 py-2">{t.vin ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        <StatusBadge status={t.status} />
-                      </td>
-                      <td className="px-3 py-2">{t.notes ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {loading ? (
+        <div className="text-white/70">Loading…</div>
+      ) : trucks.length === 0 ? (
+        <div className="text-white/60">No trucks yet.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-white/60">
+              <tr className="border-b border-white/10">
+                <th className="py-2 text-left font-medium">Unit</th>
+                <th className="py-2 text-left font-medium">Plate</th>
+                <th className="py-2 text-left font-medium">Make/Model</th>
+                <th className="py-2 text-left font-medium">Year</th>
+                <th className="py-2 text-left font-medium">VIN</th>
+                <th className="py-2 text-left font-medium">Status</th>
+                <th className="py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {trucks.map((t) => (
+                <tr key={t.id} className="text-white/80">
+                  <td className="py-2">{t.unit_number}</td>
+                  <td className="py-2">{t.plate || "—"}</td>
+                  <td className="py-2">
+                    {(t.make || "—") + (t.model ? ` ${t.model}` : "")}
+                  </td>
+                  <td className="py-2">{t.year ?? "—"}</td>
+                  <td className="py-2">{t.vin || "—"}</td>
+                  <td className="py-2">
+                    <StatusBadge status={t.status} />
+                  </td>
+                  <td className="py-2 text-right">
+                    <div className="inline-flex gap-2">
+                      <button
+                        onClick={() => openEdit(t)}
+                        className="px-2 py-1 rounded-md text-xs border border-white/10 hover:bg-white/10"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => confirmDelete(t.id)}
+                        className="px-2 py-1 rounded-md text-xs border border-red-500/30 text-red-300 hover:bg-red-500/10"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
+      )}
 
-      {/* Simple modal */}
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => !saving && setOpen(false)}
-          />
-          {/* dialog */}
-          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-xl">
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
-              <h3 className="text-lg font-semibold">Add Truck</h3>
-              <button
-                className="text-neutral-400 hover:text-neutral-200"
-                onClick={() => !saving && setOpen(false)}
-                aria-label="Close"
-              >
+      {/* ---- Create Modal ---- */}
+      {creating && (
+        <div className="fixed inset-0 bg-black/60 grid place-items-center p-4 z-50">
+          <form
+            onSubmit={saveCreate}
+            className="w-full max-w-xl rounded-2xl border border-white/10 bg-neutral-900 p-4"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-white/90 font-semibold">Add Truck</h2>
+              <button type="button" onClick={closeCreate} className="text-white/60 hover:text-white/90">
                 ✕
               </button>
             </div>
 
-            <form className="mt-4 space-y-3" onSubmit={onSubmit}>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Unit Number *
-                  </label>
-                  <input
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="unit_number"
-                    value={form.unit_number}
-                    onChange={onChange}
-                    required
-                  />
-                </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-white/60">
+                Unit Number *
+                <input
+                  required
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.unit_number}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, unit_number: e.target.value }))}
+                />
+              </label>
 
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Status
-                  </label>
-                  <select
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="status"
-                    value={form.status}
-                    onChange={onChange}
-                  >
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="MAINTENANCE">MAINTENANCE</option>
-                    <option value="INACTIVE">INACTIVE</option>
-                  </select>
-                </div>
+              <label className="text-xs text-white/60">
+                Plate
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.plate}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, plate: e.target.value }))}
+                />
+              </label>
 
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Make
-                  </label>
-                  <input
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="make"
-                    value={form.make}
-                    onChange={onChange}
-                  />
-                </div>
+              <label className="text-xs text-white/60">
+                Make
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.make}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, make: e.target.value }))}
+                />
+              </label>
 
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Model
-                  </label>
-                  <input
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="model"
-                    value={form.model}
-                    onChange={onChange}
-                  />
-                </div>
+              <label className="text-xs text-white/60">
+                Model
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.model}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, model: e.target.value }))}
+                />
+              </label>
 
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Year
-                  </label>
-                  <input
-                    type="number"
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="year"
-                    value={form.year}
-                    onChange={onChange}
-                    min="1980"
-                    max="2100"
-                  />
-                </div>
+              <label className="text-xs text-white/60">
+                Year
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.year}
+                  onChange={(e) =>
+                    setNewTruck((s) => ({
+                      ...s,
+                      year: e.target.value === "" ? "" : Number(e.target.value),
+                    }))
+                  }
+                />
+              </label>
 
-                <div>
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Plate
-                  </label>
-                  <input
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="plate"
-                    value={form.plate}
-                    onChange={onChange}
-                  />
-                </div>
+              <label className="text-xs text-white/60">
+                VIN
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.vin}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, vin: e.target.value }))}
+                />
+              </label>
 
-                <div className="col-span-2">
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    VIN
-                  </label>
-                  <input
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    name="vin"
-                    value={form.vin}
-                    onChange={onChange}
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-sm text-neutral-300 mb-1">
-                    Notes
-                  </label>
-                  <textarea
-                    className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 outline-none"
-                    rows={3}
-                    name="notes"
-                    value={form.notes}
-                    onChange={onChange}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-sm"
-                  onClick={() => setOpen(false)}
-                  disabled={saving}
+              <label className="text-xs text-white/60 col-span-2">
+                Status
+                <select
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={newTruck.status}
+                  onChange={(e) => setNewTruck((s) => ({ ...s, status: e.target.value }))}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-medium"
-                  disabled={saving}
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCreate}
+                className="px-3 py-1.5 text-sm rounded-lg border border-white/10 hover:bg-white/10"
+                disabled={creatingNow}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
+                disabled={creatingNow}
+              >
+                {creatingNow ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ---- Edit Modal ---- */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/60 grid place-items-center p-4 z-50">
+          <form
+            onSubmit={saveEdit}
+            className="w-full max-w-xl rounded-2xl border border-white/10 bg-neutral-900 p-4"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-white/90 font-semibold">Edit Truck</h2>
+              <button type="button" onClick={closeEdit} className="text-white/60 hover:text-white/90">
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-white/60">
+                Unit Number
+                <input
+                  required
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.unit_number || ""}
+                  onChange={(e) => setEditing((s) => ({ ...s, unit_number: e.target.value }))}
+                />
+              </label>
+
+              <label className="text-xs text-white/60">
+                Plate
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.plate || ""}
+                  onChange={(e) => setEditing((s) => ({ ...s, plate: e.target.value }))}
+                />
+              </label>
+
+              <label className="text-xs text-white/60">
+                Make
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.make || ""}
+                  onChange={(e) => setEditing((s) => ({ ...s, make: e.target.value }))}
+                />
+              </label>
+
+              <label className="text-xs text-white/60">
+                Model
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.model || ""}
+                  onChange={(e) => setEditing((s) => ({ ...s, model: e.target.value }))}
+                />
+              </label>
+
+              <label className="text-xs text-white/60">
+                Year
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.year ?? ""}
+                  onChange={(e) =>
+                    setEditing((s) => ({
+                      ...s,
+                      year: e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="text-xs text-white/60">
+                VIN
+                <input
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.vin || ""}
+                  onChange={(e) => setEditing((s) => ({ ...s, vin: e.target.value }))}
+                />
+              </label>
+
+              <label className="text-xs text-white/60 col-span-2">
+                Status
+                <select
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-white"
+                  value={editing.status || "ACTIVE"}
+                  onChange={(e) => setEditing((s) => ({ ...s, status: e.target.value }))}
                 >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="px-3 py-1.5 text-sm rounded-lg border border-white/10 hover:bg-white/10"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ---- Delete Confirm ---- */}
+      {pendingDelete && (
+        <div className="fixed inset-0 bg-black/60 grid place-items-center p-4 z-50">
+          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-900 p-4">
+            <h3 className="text-white/90 font-semibold mb-2">Delete truck?</h3>
+            <p className="text-white/70 text-sm mb-4">This action cannot be undone.</p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={cancelDelete}
+                className="px-3 py-1.5 text-sm rounded-lg border border-white/10 hover:bg-white/10"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={doDelete}
+                className="px-3 py-1.5 text-sm rounded-lg border border-red-500/30 text-red-300 hover:bg-red-500/10 disabled:opacity-60"
+                disabled={deleting}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
           </div>
         </div>
       )}

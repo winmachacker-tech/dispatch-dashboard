@@ -2,7 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Optional styling baseline */
+/* 🔹 Smooth theme fade + browser color-scheme hint */
+:root {
+  color-scheme: light dark;
+}
+
+html {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* 🔹 Optional styling baseline */
 html, body, #root {
   height: 100%;
 }
