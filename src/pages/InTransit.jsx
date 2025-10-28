@@ -1,163 +1,261 @@
-﻿import { useEffect, useState } from "react";
+﻿// src/pages/inTransit.jsx
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import {
-  Truck,
   Loader2,
-  CheckCheck,
   Search,
-  ChevronDown,
-  MapPin,
-  ArrowRight,
+  Truck,
+  CheckCheck,
+  AlertTriangle,
+  Pencil,
+  Trash2,
 } from "lucide-react";
+import { setLoadStatus } from "../lib/setStatus";
 
-function StatusBadge({ status }) {
-  const styles =
-    {
-      IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-      PROBLEM: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-      DELIVERED: "bg-violet-500/15 text-violet-300 border-violet-500/30",
-    }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
+const STATUSES = {
+  PLANNED: "PLANNED",
+  AVAILABLE: "AVAILABLE",
+  IN_TRANSIT: "IN_TRANSIT",
+  DELIVERED: "DELIVERED",
+  CANCELLED: "CANCELLED",
+  PROBLEM: "PROBLEM",
+};
 
+function cn(...c) {
+  return c.filter(Boolean).join(" ");
+}
+function toUSD(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+function Input(props) {
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs border ${styles}`}
-    >
+    <input
+      {...props}
+      className={cn(
+        "h-10 w-full rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 text-sm text-neutral-100 placeholder-neutral-400 outline-none focus:border-neutral-500",
+        props.className
+      )}
+    />
+  );
+}
+function Button({ className = "", disabled, ...props }) {
+  return (
+    <button
+      disabled={disabled}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900/40 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800/80 disabled:opacity-60 disabled:cursor-not-allowed",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+function StatusBadge({ status }) {
+  const map = {
+    [STATUSES.AVAILABLE]: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    [STATUSES.IN_TRANSIT]: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+    [STATUSES.PROBLEM]: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    [STATUSES.DELIVERED]: "bg-violet-500/15 text-violet-300 border-violet-500/30",
+    [STATUSES.CANCELLED]: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+    [STATUSES.PLANNED]: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  };
+  const styles = map[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
+  return (
+    <span className={cn("inline-flex items-center px-2 py-0.5 rounded-lg text-xs border", styles)}>
       {status}
     </span>
   );
 }
 
 export default function InTransitPage() {
-  const [loads, setLoads] = useState([]);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState(null);
+  const [updating, setUpdating] = useState(null);
   const [search, setSearch] = useState("");
+  const mounted = useRef(false);
 
-  useEffect(() => {
-    async function fetchLoads() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("loads")
-        .select("id, shipper, origin, destination, dispatcher, rate, status, created_at")
-        .eq("status", "IN_TRANSIT")
-        .order("created_at", { ascending: false });
+  async function fetchData() {
+    setLoading(true);
 
-      if (error) console.error("Supabase fetch error:", error.message);
-      setLoads(data || []);
-      setLoading(false);
+    // NOTE: read from the view we created
+    const { data, error } = await supabase
+      .from("loads_in_transit")
+      .select(
+        "id, shipper, origin, destination, dispatcher, rate, status, created_at, notes"
+      )
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("inTransit fetch error:", error);
+      setRows([]);
+    } else {
+      setRows(data || []);
     }
-    fetchLoads();
-  }, []);
-
-  async function markDelivered(id) {
-    setUpdatingId(id);
-    const { error } = await supabase
-      .from("loads")
-      .update({ status: "DELIVERED" })
-      .eq("id", id);
-
-    if (error) console.error("Update error:", error.message);
-    else setLoads((prev) => prev.filter((l) => l.id !== id));
-
-    setUpdatingId(null);
+    setLoading(false);
   }
 
-  const filtered = loads.filter(
-    (l) =>
-      l.shipper?.toLowerCase().includes(search.toLowerCase()) ||
-      l.origin?.toLowerCase().includes(search.toLowerCase()) ||
-      l.destination?.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+    fetchData();
+
+    // Ensure Realtime is enabled for the "public" schema/table in Supabase:
+    // Database → Replication → Realtime → enable for public.loads
+    const channel = supabase
+      .channel("loads-in-transit-watch")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => fetchData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function updateStatus(row, status) {
+    try {
+      setUpdating(row.id);
+      const updated = await setLoadStatus(row.id, status);
+
+      // If it left IN_TRANSIT, remove from this page immediately
+      if (status !== STATUSES.IN_TRANSIT) {
+        setRows((prev) => prev.filter((r) => r.id !== row.id));
+      } else {
+        setRows((prev) => prev.map((r) => (r.id === row.id ? updated : r)));
+      }
+    } catch (e) {
+      // error is already logged in helper
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  async function handleDelete(row) {
+    if (!confirm("Delete this load?")) return;
+    const { error } = await supabase.from("loads").delete().eq("id", row.id);
+    if (error) {
+      console.error("delete error:", error);
+      return;
+    }
+    setRows((prev) => prev.filter((r) => r.id !== row.id));
+  }
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return rows;
+    const s = search.toLowerCase();
+    return rows.filter(
+      (r) =>
+        r.shipper?.toLowerCase().includes(s) ||
+        r.origin?.toLowerCase().includes(s) ||
+        r.destination?.toLowerCase().includes(s) ||
+        r.dispatcher?.toLowerCase().includes(s) ||
+        r.id?.toLowerCase().includes(s)
+    );
+  }, [rows, search]);
 
   return (
-    <div className="space-y-6">
-      {/* HEADER */}
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold flex items-center gap-2">
-          <Truck className="w-5 h-5 text-sky-400" />
-          In Transit Loads
+        <h1 className="text-2xl font-semibold flex items-center gap-2">
+          <Truck className="h-6 w-6" /> In Transit Loads
         </h1>
-
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-neutral-500" />
-          <input
-            type="text"
-            placeholder="Search by shipper, origin, or destination"
-            className="pl-8 pr-3 py-2 text-sm bg-neutral-900 border border-neutral-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500 w-64"
+        <div className="relative w-80">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-5 w-5 text-neutral-400" />
+          <Input
+            placeholder="Search by shipper, origin or destination"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
           />
         </div>
       </div>
 
-      {/* TABLE */}
-      <div className="overflow-x-auto rounded-xl border border-neutral-800">
-        <table className="min-w-full text-sm">
-          <thead className="bg-neutral-900/70 border-b border-neutral-800">
-            <tr className="text-left text-neutral-400">
-              <th className="px-4 py-3 font-medium">Shipper</th>
-              <th className="px-4 py-3 font-medium">Route</th>
-              <th className="px-4 py-3 font-medium">Dispatcher</th>
-              <th className="px-4 py-3 font-medium">Rate</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan="6" className="py-8 text-center text-neutral-400">
-                  <Loader2 className="w-5 h-5 mx-auto animate-spin" />
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan="6" className="py-8 text-center text-neutral-400">
-                  No in-transit loads found
-                </td>
-              </tr>
-            ) : (
-              filtered.map((l) => (
-                <tr
-                  key={l.id}
-                  className="border-t border-neutral-800 hover:bg-neutral-900/50 transition-colors"
-                >
-                  <td className="px-4 py-3">{l.shipper || "—"}</td>
-                  <td className="px-4 py-3 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-neutral-500" />
-                    <span>{l.origin}</span>
-                    <ArrowRight className="w-4 h-4 text-neutral-500" />
-                    <span>{l.destination}</span>
-                  </td>
-                  <td className="px-4 py-3">{l.dispatcher || "—"}</td>
-                  <td className="px-4 py-3">${l.rate || "0"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={l.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      disabled={updatingId === l.id}
-                      onClick={() => markDelivered(l.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border rounded-lg border-violet-500/30 text-violet-300 hover:bg-violet-500/10 transition"
+      <div className="overflow-hidden rounded-2xl border border-neutral-800">
+        <div className="grid grid-cols-12 bg-neutral-900/60 px-4 py-3 text-xs uppercase tracking-wide text-neutral-400">
+          <div className="col-span-3">Shipper</div>
+          <div className="col-span-3">Route</div>
+          <div className="col-span-2">Dispatcher</div>
+          <div className="col-span-1">Rate</div>
+          <div className="col-span-1">Status</div>
+          <div className="col-span-2 text-right">Action</div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-neutral-400">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading in-transit loads…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-12 text-center text-neutral-400">No in-transit loads found</div>
+        ) : (
+          <div className="divide-y divide-neutral-800">
+            {filtered.map((row) => (
+              <div
+                key={row.id}
+                className="grid grid-cols-12 items-center px-4 py-3 text-sm hover:bg-neutral-900/50"
+              >
+                <div className="col-span-3 truncate">
+                  <div className="font-medium text-neutral-100">{row.shipper || "—"}</div>
+                  <div className="text-xs text-neutral-400 font-mono">{row.id}</div>
+                </div>
+
+                <div className="col-span-3 truncate text-neutral-200">
+                  {row.origin || "—"} <span className="text-neutral-500">→</span>{" "}
+                  {row.destination || "—"}
+                </div>
+
+                <div className="col-span-2 truncate">{row.dispatcher || "—"}</div>
+
+                <div className="col-span-1">{row.rate != null ? toUSD(row.rate) : "—"}</div>
+
+                <div className="col-span-1">
+                  <StatusBadge status={row.status} />
+                </div>
+
+                <div className="col-span-2">
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      onClick={() => updateStatus(row, STATUSES.IN_TRANSIT)}
+                      disabled={updating === row.id}
+                      title="Keep as In-Transit"
                     >
-                      {updatingId === l.id ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Updating...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCheck className="w-3.5 h-3.5" />
-                          Mark Delivered
-                        </>
-                      )}
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                      <Truck className="h-4 w-4" />
+                      In-Transit
+                    </Button>
+                    <Button
+                      onClick={() => updateStatus(row, STATUSES.DELIVERED)}
+                      disabled={updating === row.id}
+                      title="Mark as Delivered"
+                    >
+                      <CheckCheck className="h-4 w-4" />
+                      Delivered
+                    </Button>
+                    <Button
+                      onClick={() => updateStatus(row, STATUSES.PROBLEM)}
+                      disabled={updating === row.id}
+                      title="Flag Problem"
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                      Problem
+                    </Button>
+                    <Button title="Edit (wire as needed)">
+                      <Pencil className="h-4 w-4" />
+                      Edit
+                    </Button>
+                    <Button onClick={() => handleDelete(row)} title="Delete">
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
