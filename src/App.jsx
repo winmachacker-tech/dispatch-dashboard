@@ -1,6 +1,6 @@
 import { Routes, Route, Link } from "react-router-dom";
 import ThemeToggle from "./components/ThemeToggle";
-import Sidebar from "./components/Sidebar";
+import Sidebar from "./components/sidebar.jsx";
 
 import DashboardPage from "./pages/dashboard";
 import LoadsPage from "./pages/loads";
