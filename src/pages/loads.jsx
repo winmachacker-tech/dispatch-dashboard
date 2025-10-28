@@ -1,9 +1,21 @@
-// src/pages/loads.jsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Loader2, MoreHorizontal } from "lucide-react";
+import {
+  PlusCircle,
+  CheckCheck,
+  Truck,
+  AlertTriangle,
+  Trash2,
+  Edit3,
+  Loader2,
+  Search,
+  ChevronDown,
+} from "lucide-react";
 
-const STATUSES = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
+// ─────────────────────────────────────────────────────────────
+// Shared bits
+const STATUS_LIST = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
+const FILTERS = ["ALL", ...STATUS_LIST];
 
 function StatusBadge({ status }) {
   const styles =
@@ -16,157 +28,461 @@ function StatusBadge({ status }) {
 
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs border ${styles}`}>
-      {status.replace("_", "-")}
+      {status}
     </span>
   );
 }
 
-function FilterBar({ active, setActive }) {
+function Pill({ active, onClick, children }) {
   return (
-    <div className="flex gap-3">
-      {STATUSES.map((s) => {
-        const isActive = active === s;
-        return (
-          <button
-            key={s}
-            onClick={() => setActive(s)}
-            className={[
-              "px-4 py-2 rounded-lg text-sm border transition",
-              isActive
-                ? "bg-neutral-900 text-white border-neutral-700 dark:bg-white dark:text-neutral-900 dark:border-neutral-300"
-                : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-300 dark:bg-neutral-900 dark:text-neutral-300 dark:border-neutral-800 hover:dark:border-neutral-700",
-            ].join(" ")}
-          >
-            {s.replace("_", " ")}
-          </button>
-        );
-      })}
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-lg text-xs border transition ${
+        active
+          ? "bg-neutral-800 border-neutral-700 text-neutral-100"
+          : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({ title, onClick, disabled, children }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border transition
+        ${disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-800"}
+        border-neutral-800 bg-neutral-900 text-neutral-300`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Modal({ open, onClose, title, children, footer }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/60">
+      <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
+        </div>
+        <div className="p-5">{children}</div>
+        {footer && <div className="px-5 py-4 border-t border-neutral-800">{footer}</div>}
+      </div>
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// Main
 export default function LoadsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeStatus, setActiveStatus] = useState("AVAILABLE");
-  const [updatingId, setUpdatingId] = useState(null);
-  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [filter, setFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState("created_at.desc");
+  const [lastSynced, setLastSynced] = useState(null);
 
-  const title = useMemo(() => {
-    const label = activeStatus.replace("_", " ");
-    return `${label.charAt(0) + label.slice(1).toLowerCase()} Loads`;
-  }, [activeStatus]);
+  // Add/Edit modal state
+  const [openForm, setOpenForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    shipper: "",
+    origin: "",
+    destination: "",
+    dispatcher: "",
+    rate: "",
+    status: "AVAILABLE",
+  });
 
+  // ── Fetch all loads
   useEffect(() => {
     let ignore = false;
     async function run() {
       setLoading(true);
-      setError(null);
       const { data, error } = await supabase
         .from("loads")
         .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
-        .eq("status", activeStatus)
         .order("created_at", { ascending: false });
 
-      if (ignore) return;
-      if (error) setError(error.message);
-      setRows(data || []);
-      setLoading(false);
+      if (!ignore) {
+        if (error) {
+          console.error("Supabase fetch error:", error);
+          setRows([]);
+        } else {
+          setRows(data || []);
+        }
+        setLastSynced(new Date());
+        setLoading(false);
+      }
     }
     run();
-    return () => {
-      ignore = true;
-    };
-  }, [activeStatus]);
+    return () => { ignore = true; };
+  }, []);
 
-  async function handleChangeStatus(id, nextStatus) {
-    try {
-      setUpdatingId(id);
-      const { error } = await supabase.from("loads").update({ status: nextStatus }).eq("id", id);
-      if (error) throw error;
-      // Optimistic: if new status matches current filter, update in place; else remove from list
-      setRows((prev) =>
-        nextStatus === activeStatus
-          ? prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r))
-          : prev.filter((r) => r.id !== id)
+  // ── Derived list (filter, search, sort)
+  const list = useMemo(() => {
+    let out = rows;
+
+    if (filter !== "ALL") out = out.filter((r) => r.status === filter);
+
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      out = out.filter((r) =>
+        [r.shipper, r.origin, r.destination, r.dispatcher, r.status]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(q))
       );
-    } catch (e) {
-      setError(e.message || "Failed to update status");
-    } finally {
-      setUpdatingId(null);
     }
+
+    const [col, dir] = sortBy.split(".");
+    out = [...out].sort((a, b) => {
+      const av = a[col];
+      const bv = b[col];
+      if (col === "created_at") {
+        return dir === "asc"
+          ? new Date(av) - new Date(bv)
+          : new Date(bv) - new Date(av);
+      }
+      if (col === "rate") {
+        return dir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
+      }
+      const as = String(av ?? "");
+      const bs = String(bv ?? "");
+      return dir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
+    });
+
+    return out;
+  }, [rows, filter, query, sortBy]);
+
+  // ── Row actions
+  async function updateStatus(id, status) {
+    setBusyId(id);
+    const prev = rows;
+    setRows((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)));
+    const { error } = await supabase.from("loads").update({ status }).eq("id", id);
+    if (error) {
+      console.error(error);
+      setRows(prev);
+    }
+    setBusyId(null);
+  }
+
+  async function removeRow(id) {
+    if (!confirm("Delete this load?")) return;
+    setBusyId(id);
+    const prev = rows;
+    setRows((xs) => xs.filter((x) => x.id !== id));
+    const { error } = await supabase.from("loads").delete().eq("id", id);
+    if (error) {
+      console.error(error);
+      setRows(prev);
+    }
+    setBusyId(null);
+  }
+
+  function openAdd() {
+    setEditing(null);
+    setForm({
+      shipper: "",
+      origin: "",
+      destination: "",
+      dispatcher: "",
+      rate: "",
+      status: "AVAILABLE",
+    });
+    setOpenForm(true);
+  }
+
+  function openEdit(row) {
+    setEditing(row.id);
+    setForm({
+      shipper: row.shipper || "",
+      origin: row.origin || "",
+      destination: row.destination || "",
+      dispatcher: row.dispatcher || "",
+      rate: row.rate ?? "",
+      status: row.status || "AVAILABLE",
+    });
+    setOpenForm(true);
+  }
+
+  async function submitForm(e) {
+    e.preventDefault();
+    setSaving(true);
+
+    const payload = {
+      shipper: form.shipper?.trim() || null,
+      origin: form.origin?.trim() || null,
+      destination: form.destination?.trim() || null,
+      dispatcher: form.dispatcher?.trim() || null,
+      rate: form.rate === "" ? null : Number(form.rate),
+      status: form.status || "AVAILABLE",
+    };
+
+    if (editing) {
+      const { data, error } = await supabase
+        .from("loads")
+        .update(payload)
+        .eq("id", editing)
+        .select()
+        .single();
+      if (error) console.error(error);
+      else setRows((xs) => xs.map((x) => (x.id === editing ? data : x)));
+    } else {
+      const { data, error } = await supabase
+        .from("loads")
+        .insert(payload)
+        .select()
+        .single();
+      if (error) console.error(error);
+      else if (data) setRows((xs) => [data, ...xs]);
+    }
+
+    setSaving(false);
+    setOpenForm(false);
+    setEditing(null);
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">{title}</h2>
+    <div className="max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold">Loads</h2>
+          <span className="text-xs text-neutral-500">
+            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "—"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button className="inline-flex items-center gap-1 text-xs bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-lg">
+              <ChevronDown size={14} />
+              Sort
+            </button>
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="text-xs bg-neutral-900 border border-neutral-800 rounded-lg px-2 py-1.5"
+          >
+            <option value="created_at.desc">Newest</option>
+            <option value="created_at.asc">Oldest</option>
+            <option value="rate.desc">Rate ↓</option>
+            <option value="rate.asc">Rate ↑</option>
+            <option value="shipper.asc">Shipper A–Z</option>
+          </select>
+          <button
+            onClick={openAdd}
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+          >
+            <PlusCircle size={16} /> Add Load
+          </button>
+        </div>
       </div>
 
-      {/* Filter bar */}
-      <FilterBar active={activeStatus} setActive={setActiveStatus} />
-
-      {/* Error */}
-      {error && (
-        <div className="text-sm text-red-600 dark:text-red-400 border border-red-300/50 dark:border-red-700/40 rounded-lg p-3">
-          {error}
+      {/* Search + Filters */}
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="relative md:w-80">
+          <Search size={16} className="absolute left-3 top-2.5 text-neutral-500" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search city, shipper, dispatcher..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-sm"
+          />
         </div>
-      )}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {FILTERS.map((f) => (
+            <Pill key={f} active={filter === f} onClick={() => setFilter(f)}>
+              {f.replace("_", "-")}
+            </Pill>
+          ))}
+        </div>
+      </div>
 
-      {/* Content */}
+      {/* List */}
       {loading ? (
-        <div className="flex items-center gap-2 text-neutral-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="flex items-center gap-2 text-neutral-400">
+          <Loader2 className="animate-spin" size={16} />
           Loading…
         </div>
-      ) : rows.length === 0 ? (
-        <div className="text-neutral-500">No loads in this status.</div>
+      ) : list.length === 0 ? (
+        <div className="text-neutral-400 text-sm">No loads match this view.</div>
       ) : (
-        <ul className="space-y-3">
-          {rows.map((row) => (
-            <li
+        <div className="space-y-3">
+          {list.map((row) => (
+            <div
               key={row.id}
-              className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 bg-white dark:bg-neutral-900"
+              className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 shadow-sm hover:shadow-md transition"
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="font-semibold">
-                    {row.origin}, {row.destination?.includes(",") ? "" : ""} {row.origin && "→"} {row.destination}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">
+                    {row.origin || "—"} &nbsp;→&nbsp; {row.destination || "—"}
                   </div>
-                  <div className="text-sm text-neutral-500">
-                    {row.shipper} • ${Number(row.rate || 0).toLocaleString()}
+                  <div className="mt-1 text-xs text-neutral-400 flex flex-wrap gap-x-3 gap-y-1">
+                    <span>💰 {row.rate ? `$${row.rate}` : "—"}</span>
+                    <span>📦 {row.shipper || "—"}</span>
+                    <span>🧭 {new Date(row.created_at).toLocaleDateString()}</span>
+                    <span>👤 {row.dispatcher || "—"}</span>
                   </div>
-                  <StatusBadge status={row.status} />
                 </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
-                  <MoreHorizontal className="h-4 w-4 text-neutral-400" />
-                  <select
-                    disabled={updatingId === row.id}
-                    value=""
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      if (next) handleChangeStatus(row.id, next);
-                    }}
-                    className="text-sm bg-transparent border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1"
-                  >
-                    <option value="" disabled>
-                      Change status…
-                    </option>
-                    {STATUSES.filter((s) => s !== row.status).map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <StatusBadge status={row.status} />
               </div>
-            </li>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <IconButton
+                  title="Set In-Transit"
+                  onClick={() => updateStatus(row.id, "IN_TRANSIT")}
+                  disabled={busyId === row.id}
+                >
+                  <Truck size={14} />
+                  In-Transit
+                </IconButton>
+                <IconButton
+                  title="Mark Delivered"
+                  onClick={() => updateStatus(row.id, "DELIVERED")}
+                  disabled={busyId === row.id}
+                >
+                  <CheckCheck size={14} />
+                  Delivered
+                </IconButton>
+                <IconButton
+                  title="Report Problem"
+                  onClick={() => updateStatus(row.id, "PROBLEM")}
+                  disabled={busyId === row.id}
+                >
+                  <AlertTriangle size={14} />
+                  Problem
+                </IconButton>
+                <IconButton
+                  title="Edit"
+                  onClick={() => openEdit(row)}
+                  disabled={busyId === row.id}
+                >
+                  <Edit3 size={14} />
+                  Edit
+                </IconButton>
+                <IconButton
+                  title="Delete"
+                  onClick={() => removeRow(row.id)}
+                  disabled={busyId === row.id}
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </IconButton>
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
+
+      {/* Add/Edit Modal */}
+      <Modal
+        open={openForm}
+        onClose={() => {
+          if (!saving) {
+            setOpenForm(false);
+            setEditing(null);
+          }
+        }}
+        title={editing ? "Edit Load" : "Add Load"}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              className="px-3 py-1.5 text-xs rounded-lg border border-neutral-800"
+              onClick={() => {
+                if (!saving) {
+                  setOpenForm(false);
+                  setEditing(null);
+                }
+              }}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submitForm}
+              disabled={saving}
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs"
+            >
+              {saving && <Loader2 className="animate-spin" size={14} />}
+              {editing ? "Save Changes" : "Create Load"}
+            </button>
+          </div>
+        }
+      >
+        <form onSubmit={submitForm} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Shipper</label>
+            <input
+              value={form.shipper}
+              onChange={(e) => setForm((f) => ({ ...f, shipper: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Dispatcher</label>
+            <input
+              value={form.dispatcher}
+              onChange={(e) => setForm((f) => ({ ...f, dispatcher: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Origin</label>
+            <input
+              value={form.origin}
+              onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+              required
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Destination</label>
+            <input
+              value={form.destination}
+              onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+              required
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Rate (USD)</label>
+            <input
+              type="number"
+              step="1"
+              inputMode="numeric"
+              value={form.rate}
+              onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs text-neutral-400 mb-1">Status</label>
+            <select
+              value={form.status}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
+            >
+              {STATUS_LIST.map((s) => (
+                <option key={s} value={s}>
+                  {s.replace("_", "-")}
+                </option>
+              ))}
+            </select>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

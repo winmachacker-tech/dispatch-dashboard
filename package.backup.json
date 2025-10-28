@@ -1,0 +1,21 @@
+{`n  "type": "module",
+  "name": "dispatch-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {`n  "type": "module",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "powershell -NoProfile -Command \"git add .; if ((git status --porcelain)) {`n  "type": "module", git commit -m ('deploy: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm')); }; git push origin main\""
+  },
+  "dependencies": {`n  "type": "module",
+    "lucide-react": "^0.426.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.22.3"
+  },
+  "devDependencies": {`n  "type": "module",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.0"
+  }
+}

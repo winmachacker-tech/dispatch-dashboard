@@ -1,109 +1,49 @@
-import { Link, useLocation } from "react-router-dom";
-import { X, LayoutGrid, Truck, Boxes } from "lucide-react";
+// src/components/Sidebar.jsx
+import { NavLink } from "react-router-dom";
+import {
+  LayoutDashboard,
+  Truck,
+  PackageSearch,
+  Route as RouteIcon,
+  PackageCheck,
+  ClipboardList, // 👈 new icon for Available Loads
+} from "lucide-react";
 
-/**
- * Props:
- *  - open (bool): controls mobile drawer visibility
- *  - onClose (fn): called to close the drawer
- */
-export default function Sidebar({ open = false, onClose = () => {} }) {
-  const { pathname } = useLocation();
+const items = [
+  { to: "/", label: "Dashboard", icon: <LayoutDashboard size={18} /> },
+  { to: "/loads", label: "Loads", icon: <PackageSearch size={18} /> },
+  { to: "/trucks", label: "Trucks", icon: <Truck size={18} /> },
+  { to: "/in-transit", label: "In Transit", icon: <RouteIcon size={18} /> },
+  { to: "/delivered", label: "Delivered", icon: <PackageCheck size={18} /> },
+  { to: "/available-loads", label: "Available Loads", icon: <ClipboardList size={18} /> }, // ✅ Correct addition
+];
 
-  const nav = [
-    { to: "/", label: "Dashboard", icon: LayoutGrid },
-    { to: "/loads", label: "Loads", icon: Boxes },
-    { to: "/trucks", label: "Trucks", icon: Truck },
-  ];
-
-  // Shared sidebar content (used in both desktop and mobile shells)
-  const SidebarInner = () => (
-    <div className="flex h-full flex-col">
-      <nav className="p-3 sm:p-4 space-y-1">
-        {nav.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.to;
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              onClick={onClose}
-              className={[
-                "flex items-center gap-2 rounded-xl px-3 py-2 text-sm",
-                "border",
-                active
-                  ? "bg-neutral-100 dark:bg-neutral-800/60 border-neutral-300 dark:border-neutral-700"
-                  : "border-transparent hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40",
-              ].join(" ")}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="mt-auto p-3 sm:p-4 text-xs text-neutral-500">
-        v0.1 • mobile-first
-      </div>
-    </div>
-  );
+export default function Sidebar() {
+  const base =
+    "flex items-center gap-2 px-3 py-2 rounded-lg transition-colors";
+  const active =
+    "bg-neutral-200 text-neutral-900 dark:bg-neutral-800 dark:text-white";
+  const idle =
+    "text-neutral-700 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800";
 
   return (
-    <>
-      {/* Desktop static sidebar */}
-      <aside
-        className="
-          hidden lg:flex
-          w-64 shrink-0
-          border-r border-neutral-200 dark:border-neutral-800
-          bg-white dark:bg-neutral-900
-          min-h-[calc(100dvh-56px)]
-        "
-      >
-        <SidebarInner />
-      </aside>
-
-      {/* Mobile drawer */}
-      <div
-        className={[
-          "lg:hidden",
-          "fixed inset-0 z-50",
-          open ? "pointer-events-auto" : "pointer-events-none",
-        ].join(" ")}
-      >
-        {/* Backdrop */}
-        <div
-          className={[
-            "absolute inset-0 bg-black/30 transition-opacity",
-            open ? "opacity-100" : "opacity-0",
-          ].join(" ")}
-          onClick={onClose}
-        />
-
-        {/* Panel */}
-        <div
-          className={[
-            "absolute left-0 top-0 h-full w-72 max-w-[85%]",
-            "bg-white dark:bg-neutral-900",
-            "border-r border-neutral-200 dark:border-neutral-800",
-            "transition-transform duration-300 ease-out",
-            open ? "translate-x-0" : "-translate-x-full",
-            "shadow-xl",
-          ].join(" ")}
-        >
-          <div className="flex items-center justify-between p-3 border-b border-neutral-200 dark:border-neutral-800">
-            <div className="font-medium">Menu</div>
-            <button
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 dark:border-neutral-800"
-              onClick={onClose}
-              aria-label="Close Menu"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <SidebarInner />
-        </div>
+    <aside className="hidden md:flex md:flex-col md:w-56 shrink-0 border-r border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/80 backdrop-blur-md min-h-screen p-3">
+      <div className="px-2 py-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400">
+        Navigation
       </div>
-    </>
+      <nav className="flex flex-col gap-1 px-2">
+        {items.map((it) => (
+          <NavLink
+            key={it.to}
+            to={it.to}
+            className={({ isActive }) => `${base} ${isActive ? active : idle}`}
+            end={it.to === "/"}
+          >
+            {it.icon}
+            <span>{it.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
   );
 }

@@ -1,60 +1,48 @@
-import { useState } from "react";
+// src/App.jsx
 import { Routes, Route, Link } from "react-router-dom";
-import { Menu } from "lucide-react";
 import ThemeToggle from "./components/ThemeToggle";
 import Sidebar from "./components/Sidebar";
 
 import DashboardPage from "./pages/dashboard";
 import LoadsPage from "./pages/loads";
 import TrucksPage from "./pages/trucks";
+// If you have this page, keep it. Otherwise remove this import/route.
+// import AvailableLoadsPage from "./pages/availableLoads";
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
   return (
-    <div className="min-h-[100dvh] bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      {/* Top bar (always visible) */}
-      <header className="sticky top-0 z-40 flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur-md">
-        {/* Mobile menu button */}
-        <button
-          className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-200 dark:border-neutral-800"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="Open Menu"
-        >
-          <Menu size={20} />
-        </button>
-
-        <h1 className="text-lg sm:text-xl font-semibold">
-          <Link to="/">Dispatch Dashboard</Link>
-        </h1>
-
-        <div className="ml-auto flex items-center gap-2">
-          {/* Leave your existing quick-action buttons here */}
-          <ThemeToggle />
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 transition-colors">
+      {/* Layout wrapper: stacks on mobile, side-by-side on desktop */}
+      <div className="flex flex-col md:flex-row">
+        {/* SIDEBAR: full width on mobile, fixed width on desktop */}
+        <div className="w-full md:w-64 border-b md:border-b-0 md:border-r border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/80 backdrop-blur-md">
+          <Sidebar />
         </div>
-      </header>
 
-      <div className="relative flex">
-        {/* Sidebar: static on desktop, drawer on mobile */}
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        {/* MAIN COLUMN */}
+        <div className="flex-1 min-w-0">
+          {/* HEADER: tighter on mobile, same look on desktop */}
+          <header className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4 border-b border-neutral-200 dark:border-neutral-800 bg-white/70 dark:bg-neutral-900/80 backdrop-blur-md">
+            <h1 className="text-lg sm:text-xl font-semibold text-center sm:text-left">
+              <Link to="/">Dispatch Dashboard</Link>
+            </h1>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+            </div>
+          </header>
 
-        {/* Page content */}
-        <main
-          className="
-            flex-1 min-w-0
-            px-4 sm:px-6 py-5
-            lg:ml-0
-          "
-        >
-          {/* Constrain very wide screens slightly for nicer reading on mobile */}
-          <div className="mx-auto max-w-[1200px]">
+          {/* PAGE CONTENT: smaller padding on phones */}
+          <main className="p-4 sm:p-6">
             <Routes>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/loads" element={<LoadsPage />} />
               <Route path="/trucks" element={<TrucksPage />} />
+              {/* <Route path="/available" element={<AvailableLoadsPage />} /> */}
+              {/* Fallback: simple not found */}
+              <Route path="*" element={<div className="text-sm opacity-70">Page not found</div>} />
             </Routes>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
