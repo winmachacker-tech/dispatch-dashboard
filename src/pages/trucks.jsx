@@ -1,6 +1,6 @@
-// src/pages/trucks.jsx
+﻿// src/pages/trucks.jsx
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase.js";
 
 // Inline badge
 function StatusBadge({ status }) {
@@ -198,7 +198,7 @@ export default function Trucks() {
       )}
 
       {loading ? (
-        <div className="text-white/70">Loading…</div>
+        <div className="text-white/70">Loadingâ€¦</div>
       ) : trucks.length === 0 ? (
         <div className="text-white/60">No trucks yet.</div>
       ) : (
@@ -219,12 +219,12 @@ export default function Trucks() {
               {trucks.map((t) => (
                 <tr key={t.id} className="text-white/80">
                   <td className="py-2">{t.unit_number}</td>
-                  <td className="py-2">{t.plate || "—"}</td>
+                  <td className="py-2">{t.plate || "â€”"}</td>
                   <td className="py-2">
-                    {(t.make || "—") + (t.model ? ` ${t.model}` : "")}
+                    {(t.make || "â€”") + (t.model ? ` ${t.model}` : "")}
                   </td>
-                  <td className="py-2">{t.year ?? "—"}</td>
-                  <td className="py-2">{t.vin || "—"}</td>
+                  <td className="py-2">{t.year ?? "â€”"}</td>
+                  <td className="py-2">{t.vin || "â€”"}</td>
                   <td className="py-2">
                     <StatusBadge status={t.status} />
                   </td>
@@ -261,7 +261,7 @@ export default function Trucks() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-white/90 font-semibold">Add Truck</h2>
               <button type="button" onClick={closeCreate} className="text-white/60 hover:text-white/90">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -356,7 +356,7 @@ export default function Trucks() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
                 disabled={creatingNow}
               >
-                {creatingNow ? "Saving…" : "Save"}
+                {creatingNow ? "Savingâ€¦" : "Save"}
               </button>
             </div>
           </form>
@@ -373,7 +373,7 @@ export default function Trucks() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-white/90 font-semibold">Edit Truck</h2>
               <button type="button" onClick={closeEdit} className="text-white/60 hover:text-white/90">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -468,7 +468,7 @@ export default function Trucks() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Savingâ€¦" : "Save"}
               </button>
             </div>
           </form>
@@ -494,7 +494,7 @@ export default function Trucks() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-red-500/30 text-red-300 hover:bg-red-500/10 disabled:opacity-60"
                 disabled={deleting}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? "Deletingâ€¦" : "Delete"}
               </button>
             </div>
           </div>
@@ -503,3 +503,4 @@ export default function Trucks() {
     </div>
   );
 }
+

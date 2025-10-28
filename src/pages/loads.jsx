@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+﻿import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase.js";
 import {
   PlusCircle,
   CheckCheck,
@@ -10,9 +10,16 @@ import {
   Loader2,
   Search,
   ChevronDown,
+  DollarSign,
+  CalendarDays,
+  UserRound,
+  ArrowRight,
+  X,
 } from "lucide-react";
 
-// ─────────────────────────────────────────────────────────────
+console.log("supabase client OK?", typeof supabase === "object");
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Shared bits
 const STATUS_LIST = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
 const FILTERS = ["ALL", ...STATUS_LIST];
@@ -70,7 +77,9 @@ function Modal({ open, onClose, title, children, footer }) {
       <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950">
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
+            <X size={16} />
+          </button>
         </div>
         <div className="p-5">{children}</div>
         {footer && <div className="px-5 py-4 border-t border-neutral-800">{footer}</div>}
@@ -79,7 +88,7 @@ function Modal({ open, onClose, title, children, footer }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 // Main
 export default function LoadsPage() {
   const [rows, setRows] = useState([]);
@@ -110,7 +119,9 @@ export default function LoadsPage() {
       setLoading(true);
       const { data, error } = await supabase
         .from("loads")
-        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
+        .select(
+          "id, created_at, shipper, origin, destination, dispatcher, rate, status"
+        )
         .order("created_at", { ascending: false });
 
       if (!ignore) {
@@ -125,7 +136,9 @@ export default function LoadsPage() {
       }
     }
     run();
-    return () => { ignore = true; };
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // ── Derived list (filter, search, sort)
@@ -153,7 +166,7 @@ export default function LoadsPage() {
           : new Date(bv) - new Date(av);
       }
       if (col === "rate") {
-        return dir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
+        return dir === "asc" ? Number(av || 0) - Number(bv || 0) : Number(bv || 0) - Number(av || 0);
       }
       const as = String(av ?? "");
       const bs = String(bv ?? "");
@@ -327,13 +340,30 @@ export default function LoadsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium">
-                    {row.origin || "—"} &nbsp;→&nbsp; {row.destination || "—"}
+                    {row.origin || "—"}{" "}
+                    <ArrowRight size={12} className="inline-block mx-1 opacity-60" />{" "}
+                    {row.destination || "—"}
                   </div>
+
                   <div className="mt-1 text-xs text-neutral-400 flex flex-wrap gap-x-3 gap-y-1">
-                    <span>💰 {row.rate ? `$${row.rate}` : "—"}</span>
-                    <span>📦 {row.shipper || "—"}</span>
-                    <span>🧭 {new Date(row.created_at).toLocaleDateString()}</span>
-                    <span>👤 {row.dispatcher || "—"}</span>
+                    <span className="inline-flex items-center gap-1">
+                      <DollarSign size={14} />
+                      {typeof row.rate === "number"
+                        ? new Intl.NumberFormat("en-US").format(row.rate)
+                        : "—"}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarDays size={14} />
+                      {new Date(row.created_at).toLocaleDateString()}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <UserRound size={14} />
+                      {row.dispatcher || "—"}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Edit3 size={14} />
+                      {row.shipper || "—"}
+                    </span>
                   </div>
                 </div>
                 <StatusBadge status={row.status} />

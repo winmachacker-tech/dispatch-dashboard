@@ -1,4 +1,4 @@
-// src/components/Topbar.jsx
+﻿// src/components/Topbar.jsx
 import { Menu } from "lucide-react";
 
 export default function Topbar() {
@@ -8,9 +8,10 @@ export default function Topbar() {
         <button className="md:hidden p-2 rounded hover:bg-gray-100" aria-label="Open menu">
           <Menu size={20} />
         </button>
-        <div className="text-sm text-gray-500">v0.2 • Supabase-backed</div>
+        <div className="text-sm text-gray-500">v0.2 â€¢ Supabase-backed</div>
         <div className="ml-auto text-sm text-gray-400">USA / PT</div>
       </div>
     </header>
   );
 }
+

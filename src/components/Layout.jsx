@@ -1,4 +1,4 @@
-// src/components/Layout.jsx
+﻿// src/components/Layout.jsx
 import Sidebar from "./Sidebar.jsx";
 import Topbar from "./Topbar.jsx";
 
@@ -15,3 +15,4 @@ export default function Layout({ children }) {
     </div>
   );
 }
+

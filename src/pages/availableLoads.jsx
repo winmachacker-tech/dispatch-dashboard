@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+﻿import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase.js";
 import {
   PlusCircle,
   CheckCheck,
@@ -12,7 +12,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Status helpers
 const STATUSES = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
 
@@ -65,7 +65,7 @@ function IconButton({ title, onClick, children, disabled }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Add / Edit modal (simple, no extra lib)
 function Modal({ open, onClose, title, children, footer }) {
   if (!open) return null;
@@ -78,7 +78,7 @@ function Modal({ open, onClose, title, children, footer }) {
             onClick={onClose}
             className="text-neutral-400 hover:text-neutral-200"
           >
-            ✕
+            âœ•
           </button>
         </div>
         <div className="p-5">{children}</div>
@@ -88,7 +88,7 @@ function Modal({ open, onClose, title, children, footer }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Main page
 export default function AvailableLoadsPage() {
   const [rows, setRows] = useState([]);
@@ -112,7 +112,7 @@ export default function AvailableLoadsPage() {
     status: "AVAILABLE",
   });
 
-  // ── Fetch
+  // â”€â”€ Fetch
   useEffect(() => {
     let ignore = false;
     async function fetchLoads() {
@@ -138,7 +138,7 @@ export default function AvailableLoadsPage() {
     };
   }, []);
 
-  // ── Derived list (filter + search + sort)
+  // â”€â”€ Derived list (filter + search + sort)
   const list = useMemo(() => {
     let out = rows;
 
@@ -173,7 +173,7 @@ export default function AvailableLoadsPage() {
     return out;
   }, [rows, filter, query, sortBy]);
 
-  // ── Actions
+  // â”€â”€ Actions
   async function updateStatus(id, status) {
     setBusyId(id);
     const prev = rows;
@@ -268,7 +268,7 @@ export default function AvailableLoadsPage() {
     setEditing(null);
   }
 
-  // ── UI
+  // â”€â”€ UI
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header row */}
@@ -276,7 +276,7 @@ export default function AvailableLoadsPage() {
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Available Loads</h2>
           <span className="text-xs text-neutral-500">
-            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "—"}
+            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "â€”"}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -295,9 +295,9 @@ export default function AvailableLoadsPage() {
           >
             <option value="created_at.desc">Newest</option>
             <option value="created_at.asc">Oldest</option>
-            <option value="rate.desc">Rate ↓</option>
-            <option value="rate.asc">Rate ↑</option>
-            <option value="shipper.asc">Shipper A–Z</option>
+            <option value="rate.desc">Rate â†“</option>
+            <option value="rate.asc">Rate â†‘</option>
+            <option value="shipper.asc">Shipper Aâ€“Z</option>
           </select>
           <button
             onClick={openAdd}
@@ -333,7 +333,7 @@ export default function AvailableLoadsPage() {
       {loading ? (
         <div className="flex items-center gap-2 text-neutral-400">
           <Loader2 className="animate-spin" size={16} />
-          Loading…
+          Loadingâ€¦
         </div>
       ) : list.length === 0 ? (
         <div className="text-neutral-400 text-sm">No loads match this view.</div>
@@ -348,13 +348,13 @@ export default function AvailableLoadsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium">
-                    {row.origin || "—"}, &nbsp;→&nbsp; {row.destination || "—"}
+                    {row.origin || "â€”"}, &nbsp;â†’&nbsp; {row.destination || "â€”"}
                   </div>
                   <div className="mt-1 text-xs text-neutral-400 flex flex-wrap gap-x-3 gap-y-1">
-                    <span>💰 {row.rate ? `$${row.rate}` : "—"}</span>
-                    <span>📦 {row.shipper || "—"}</span>
-                    <span>🧭 {new Date(row.created_at).toLocaleDateString()}</span>
-                    <span>👤 {row.dispatcher || "—"}</span>
+                    <span>ðŸ’° {row.rate ? `$${row.rate}` : "â€”"}</span>
+                    <span>ðŸ“¦ {row.shipper || "â€”"}</span>
+                    <span>ðŸ§­ {new Date(row.created_at).toLocaleDateString()}</span>
+                    <span>ðŸ‘¤ {row.dispatcher || "â€”"}</span>
                   </div>
                 </div>
                 <StatusBadge status={row.status} />
@@ -508,3 +508,4 @@ export default function AvailableLoadsPage() {
     </div>
   );
 }
+

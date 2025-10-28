@@ -1,4 +1,4 @@
-// src/components/ThemeToggle.jsx
+﻿// src/components/ThemeToggle.jsx
 import { useEffect, useState } from "react";
 import { Moon, Sun, Monitor } from "lucide-react";
 import { applyTheme, getStoredTheme, setTheme } from "../lib/theme";
@@ -46,3 +46,4 @@ export default function ThemeToggle() {
     </div>
   );
 }
+

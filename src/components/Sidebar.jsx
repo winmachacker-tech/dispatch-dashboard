@@ -1,4 +1,4 @@
-// src/components/Sidebar.jsx
+﻿// src/components/Sidebar.jsx
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -6,7 +6,7 @@ import {
   PackageSearch,
   Route as RouteIcon,
   PackageCheck,
-  ClipboardList, // 👈 new icon for Available Loads
+  ClipboardList, // ðŸ‘ˆ new icon for Available Loads
 } from "lucide-react";
 
 const items = [
@@ -15,7 +15,7 @@ const items = [
   { to: "/trucks", label: "Trucks", icon: <Truck size={18} /> },
   { to: "/in-transit", label: "In Transit", icon: <RouteIcon size={18} /> },
   { to: "/delivered", label: "Delivered", icon: <PackageCheck size={18} /> },
-  { to: "/available-loads", label: "Available Loads", icon: <ClipboardList size={18} /> }, // ✅ Correct addition
+  { to: "/available-loads", label: "Available Loads", icon: <ClipboardList size={18} /> }, // âœ… Correct addition
 ];
 
 export default function Sidebar() {
@@ -47,3 +47,4 @@ export default function Sidebar() {
     </aside>
   );
 }
+

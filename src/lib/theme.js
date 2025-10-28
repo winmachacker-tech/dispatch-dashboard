@@ -1,4 +1,4 @@
-// src/lib/theme.js
+﻿// src/lib/theme.js
 export const STORAGE_KEY = 'theme';
 
 export function getStoredTheme() {
@@ -21,3 +21,4 @@ export function setTheme(theme) {
 export function initTheme() {
   applyTheme(getStoredTheme());
 }
+

@@ -1,4 +1,4 @@
-// src/App.jsx
+﻿// src/App.jsx
 import { Routes, Route, Link } from "react-router-dom";
 import ThemeToggle from "./components/ThemeToggle";
 import Sidebar from "./components/Sidebar";
@@ -6,7 +6,7 @@ import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/dashboard";
 import LoadsPage from "./pages/loads";
 import TrucksPage from "./pages/trucks";
-import InTransitPage from "./pages/inTransit"; // 👈 add this
+import InTransitPage from "./pages/InTransit.jsx"; // ðŸ‘ˆ add this
 import DeliveredPage from "./pages/delivered";  // if you already have it
 import AvailableLoadsPage from "./pages/availableLoads"; // if you already have it
 
@@ -29,7 +29,7 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/loads" element={<LoadsPage />} />
               <Route path="/trucks" element={<TrucksPage />} />
-              <Route path="/in-transit" element={<InTransitPage />} /> {/* 👈 new */}
+              <Route path="/in-transit" element={<InTransitPage />} /> {/* ðŸ‘ˆ new */}
               <Route path="/delivered" element={<DeliveredPage />} />
               <Route path="/available-loads" element={<AvailableLoadsPage />} />
               <Route path="*" element={<div>Page not found</div>} />
@@ -40,3 +40,4 @@ export default function App() {
     </div>
   );
 }
+

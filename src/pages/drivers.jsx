@@ -1,6 +1,6 @@
-// src/pages/drivers.jsx
+﻿// src/pages/drivers.jsx
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase.js";
 
 // Badge for driver status
 function DriverBadge({ status }) {
@@ -181,7 +181,7 @@ export default function Drivers() {
       )}
 
       {loading ? (
-        <div className="text-white/70">Loading…</div>
+        <div className="text-white/70">Loadingâ€¦</div>
       ) : drivers.length === 0 ? (
         <div className="text-white/60">No drivers yet.</div>
       ) : (
@@ -200,10 +200,10 @@ export default function Drivers() {
               {drivers.map((d) => (
                 <tr key={d.id} className="text-white/80">
                   <td className="py-2">
-                    {(d.first_name || "—") + " " + (d.last_name || "")}
+                    {(d.first_name || "â€”") + " " + (d.last_name || "")}
                   </td>
-                  <td className="py-2">{d.phone || "—"}</td>
-                  <td className="py-2">{d.email || "—"}</td>
+                  <td className="py-2">{d.phone || "â€”"}</td>
+                  <td className="py-2">{d.email || "â€”"}</td>
                   <td className="py-2">
                     <DriverBadge status={d.status} />
                   </td>
@@ -240,7 +240,7 @@ export default function Drivers() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-white/90 font-semibold">Add Driver</h2>
               <button type="button" onClick={closeCreate} className="text-white/60 hover:text-white/90">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -312,7 +312,7 @@ export default function Drivers() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
                 disabled={creatingNow}
               >
-                {creatingNow ? "Saving…" : "Save"}
+                {creatingNow ? "Savingâ€¦" : "Save"}
               </button>
             </div>
           </form>
@@ -329,7 +329,7 @@ export default function Drivers() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-white/90 font-semibold">Edit Driver</h2>
               <button type="button" onClick={closeEdit} className="text-white/60 hover:text-white/90">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -401,7 +401,7 @@ export default function Drivers() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60"
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Savingâ€¦" : "Save"}
               </button>
             </div>
           </form>
@@ -427,7 +427,7 @@ export default function Drivers() {
                 className="px-3 py-1.5 text-sm rounded-lg border border-red-500/30 text-red-300 hover:bg-red-500/10 disabled:opacity-60"
                 disabled={deleting}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? "Deletingâ€¦" : "Delete"}
               </button>
             </div>
           </div>
@@ -436,3 +436,4 @@ export default function Drivers() {
     </div>
   );
 }
+
