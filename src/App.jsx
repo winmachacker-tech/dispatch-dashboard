@@ -6,6 +6,8 @@ import DashboardPage from "./pages/dashboard";
 import LoadsPage from "./pages/loads";
 import TrucksPage from "./pages/trucks";
 import DeliveredPage from "./pages/delivered";
+import AvailableLoadsPage from "./pages/availableLoads";
+
 
 
 // ✅ ADD THIS IMPORT
@@ -35,6 +37,8 @@ export default function App() {
               <Route path="/loads" element={<LoadsPage />} />
               <Route path="/trucks" element={<TrucksPage />} />
               <Route path="/delivered" element={<DeliveredPage />} />
+              <Route path="/available-loads" element={<AvailableLoadsPage />} />
+
 
 
               {/* ✅ ADD THIS NEW ROUTE */}

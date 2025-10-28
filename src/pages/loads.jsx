@@ -1,100 +1,97 @@
 // src/pages/loads.jsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { PlusCircle, Loader2, Trash2, CheckCheck } from "lucide-react";
+import { Loader2, MoreHorizontal } from "lucide-react";
 
-const STATUSES = ["PLANNED", "IN_TRANSIT", "DELIVERED", "CANCELLED"];
+const STATUSES = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
 
-export default function Loads() {
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+function StatusBadge({ status }) {
+  const styles =
+    {
+      AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+      PROBLEM: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      DELIVERED: "bg-violet-500/15 text-violet-300 border-violet-500/30",
+    }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs border ${styles}`}>
+      {status.replace("_", "-")}
+    </span>
+  );
+}
+
+function FilterBar({ active, setActive }) {
+  return (
+    <div className="flex gap-3">
+      {STATUSES.map((s) => {
+        const isActive = active === s;
+        return (
+          <button
+            key={s}
+            onClick={() => setActive(s)}
+            className={[
+              "px-4 py-2 rounded-lg text-sm border transition",
+              isActive
+                ? "bg-neutral-900 text-white border-neutral-700 dark:bg-white dark:text-neutral-900 dark:border-neutral-300"
+                : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-300 dark:bg-neutral-900 dark:text-neutral-300 dark:border-neutral-800 hover:dark:border-neutral-700",
+            ].join(" ")}
+          >
+            {s.replace("_", " ")}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function LoadsPage() {
   const [rows, setRows] = useState([]);
-  const [updatingId, setUpdatingId] = useState(null); // 👈 for the action button state
-  const [form, setForm] = useState({
-    shipper: "",
-    origin: "",
-    destination: "",
-    dispatcher: "",
-    rate: "",
-    status: "PLANNED",
-  });
+  const [loading, setLoading] = useState(true);
+  const [activeStatus, setActiveStatus] = useState("AVAILABLE");
+  const [updatingId, setUpdatingId] = useState(null);
+  const [error, setError] = useState(null);
+
+  const title = useMemo(() => {
+    const label = activeStatus.replace("_", " ");
+    return `${label.charAt(0) + label.slice(1).toLowerCase()} Loads`;
+  }, [activeStatus]);
 
   useEffect(() => {
     let ignore = false;
     async function run() {
       setLoading(true);
+      setError(null);
       const { data, error } = await supabase
         .from("loads")
-        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status, updated_at")
+        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
+        .eq("status", activeStatus)
         .order("created_at", { ascending: false });
-      if (!ignore) {
-        if (error) console.error(error);
-        setRows(data || []);
-        setLoading(false);
-      }
+
+      if (ignore) return;
+      if (error) setError(error.message);
+      setRows(data || []);
+      setLoading(false);
     }
     run();
-    return () => { ignore = true; };
-  }, []);
-
-  const canSubmit = useMemo(() => {
-    if (!form.shipper || !form.origin || !form.destination) return false;
-    if (!form.rate || Number.isNaN(Number(form.rate))) return false;
-    return true;
-  }, [form]);
-
-  async function onCreate(e) {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setSubmitting(true);
-    const payload = {
-      shipper: form.shipper.trim(),
-      origin: form.origin.trim(),
-      destination: form.destination.trim(),
-      dispatcher: form.dispatcher.trim() || null,
-      rate: Number(form.rate),
-      status: form.status,
+    return () => {
+      ignore = true;
     };
-    const { data, error } = await supabase.from("loads").insert(payload).select().single();
-    if (error) {
-      console.error(error);
-    } else if (data) {
-      setRows((prev) => [data, ...prev]);
-      setForm({ shipper: "", origin: "", destination: "", dispatcher: "", rate: "", status: "PLANNED" });
-    }
-    setSubmitting(false);
-  }
+  }, [activeStatus]);
 
-  async function onDelete(id) {
-    const prev = rows;
-    setRows((p) => p.filter((r) => r.id !== id)); // optimistic
-    const { error } = await supabase.from("loads").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      setRows(prev); // rollback
-    }
-  }
-
-  // 👇 NEW: mark as delivered
-  async function markAsDelivered(id) {
+  async function handleChangeStatus(id, nextStatus) {
     try {
       setUpdatingId(id);
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase
-        .from("loads")
-        .update({ status: "DELIVERED", updated_at: nowIso })
-        .eq("id", id);
+      const { error } = await supabase.from("loads").update({ status: nextStatus }).eq("id", id);
       if (error) throw error;
-
-      // Optimistic UI
+      // Optimistic: if new status matches current filter, update in place; else remove from list
       setRows((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status: "DELIVERED", updated_at: nowIso } : r))
+        nextStatus === activeStatus
+          ? prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r))
+          : prev.filter((r) => r.id !== id)
       );
-      // If you want to hide delivered rows from this page immediately, uncomment:
-      // setRows((prev) => prev.filter((r) => r.id !== id));
     } catch (e) {
-      console.error("Failed to mark delivered:", e);
-      alert("Could not mark as delivered.");
+      setError(e.message || "Failed to update status");
     } finally {
       setUpdatingId(null);
     }
@@ -102,97 +99,74 @@ export default function Loads() {
 
   return (
     <div className="space-y-6">
+      {/* Page header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Loads</h1>
-          <p className="text-gray-500">Create and manage shipments.</p>
-        </div>
+        <h2 className="text-2xl font-semibold">{title}</h2>
       </div>
 
-      <form onSubmit={onCreate} className="rounded-2xl border bg-white p-4 grid grid-cols-1 md:grid-cols-7 gap-3">
-        <input className="rounded-xl border px-3 py-2" placeholder="Shipper"
-          value={form.shipper} onChange={(e) => setForm({ ...form, shipper: e.target.value })} />
-        <input className="rounded-xl border px-3 py-2" placeholder="Origin (City, ST)"
-          value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} />
-        <input className="rounded-xl border px-3 py-2" placeholder="Destination (City, ST)"
-          value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
-        <input className="rounded-xl border px-3 py-2" placeholder="Dispatcher"
-          value={form.dispatcher} onChange={(e) => setForm({ ...form, dispatcher: e.target.value })} />
-        <input type="number" inputMode="decimal" className="rounded-xl border px-3 py-2" placeholder="Rate (USD)"
-          value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} />
-        <select className="rounded-xl border px-3 py-2" value={form.status}
-          onChange={(e) => setForm({ ...form, status: e.target.value })}>
-          {STATUSES.map((s) => (<option key={s} value={s}>{s}</option>))}
-        </select>
-        <button disabled={!canSubmit || submitting}
-          className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 font-medium text-white bg-gray-900 disabled:opacity-50">
-          {submitting ? <Loader2 className="animate-spin" size={18} /> : <PlusCircle size={18} />}
-          <span>Add</span>
-        </button>
-      </form>
+      {/* Filter bar */}
+      <FilterBar active={activeStatus} setActive={setActiveStatus} />
 
-      <div className="rounded-2xl border bg-white overflow-hidden">
-        <div className="max-h-[60vh] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b sticky top-0">
-              <tr className="text-left">
-                <th className="px-3 py-2 w-[180px]">Created</th>
-                <th className="px-3 py-2">Shipper</th>
-                <th className="px-3 py-2">Origin</th>
-                <th className="px-3 py-2">Destination</th>
-                <th className="px-3 py-2">Dispatcher</th>
-                <th className="px-3 py-2 text-right">Rate</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2 w-[140px]">Actions</th> {/* 👈 widened for two buttons */}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td className="px-3 py-4 text-gray-500" colSpan={8}>Loading…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td className="px-3 py-6 text-gray-400" colSpan={8}>No loads yet.</td></tr>
-              ) : rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="px-3 py-2">{new Date(r.created_at).toLocaleString()}</td>
-                  <td className="px-3 py-2">{r.shipper}</td>
-                  <td className="px-3 py-2">{r.origin}</td>
-                  <td className="px-3 py-2">{r.destination}</td>
-                  <td className="px-3 py-2">{r.dispatcher || "—"}</td>
-                  <td className="px-3 py-2 text-right">${Number(r.rate).toFixed(2)}</td>
-                  <td className="px-3 py-2">{r.status}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => markAsDelivered(r.id)}
-                        disabled={r.status === "DELIVERED" || updatingId === r.id}
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={r.status === "DELIVERED" ? "Already delivered" : "Mark as Delivered"}
-                      >
-                        {updatingId === r.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <CheckCheck className="w-4 h-4" />
-                        )}
-                        <span className="hidden sm:inline">
-                          {r.status === "DELIVERED" ? "Delivered" : "Mark Delivered"}
-                        </span>
-                      </button>
-
-                      <button
-                        onClick={() => onDelete(r.id)}
-                        className="p-2 rounded hover:bg-gray-100"
-                        title="Delete"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Error */}
+      {error && (
+        <div className="text-sm text-red-600 dark:text-red-400 border border-red-300/50 dark:border-red-700/40 rounded-lg p-3">
+          {error}
         </div>
-      </div>
+      )}
+
+      {/* Content */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-neutral-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-neutral-500">No loads in this status.</div>
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((row) => (
+            <li
+              key={row.id}
+              className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 bg-white dark:bg-neutral-900"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="font-semibold">
+                    {row.origin}, {row.destination?.includes(",") ? "" : ""} {row.origin && "→"} {row.destination}
+                  </div>
+                  <div className="text-sm text-neutral-500">
+                    {row.shipper} • ${Number(row.rate || 0).toLocaleString()}
+                  </div>
+                  <StatusBadge status={row.status} />
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2">
+                  <MoreHorizontal className="h-4 w-4 text-neutral-400" />
+                  <select
+                    disabled={updatingId === row.id}
+                    value=""
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next) handleChangeStatus(row.id, next);
+                    }}
+                    className="text-sm bg-transparent border border-neutral-200 dark:border-neutral-800 rounded-lg px-2 py-1"
+                  >
+                    <option value="" disabled>
+                      Change status…
+                    </option>
+                    {STATUSES.filter((s) => s !== row.status).map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

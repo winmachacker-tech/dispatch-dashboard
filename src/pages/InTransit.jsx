@@ -1,113 +1,132 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCheck } from "lucide-react";
 
-export default function InTransit() {
+export default function InTransitPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState(null);
 
-  // initial load
   useEffect(() => {
-    (async () => {
+    let ignore = false;
+
+    async function load() {
+      setLoading(true);
       const { data, error } = await supabase
         .from("loads")
-        .select("*")
+        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status, updated_at")
         .eq("status", "IN_TRANSIT")
         .order("created_at", { ascending: false });
-      if (!error) setRows(data || []);
-      setLoading(false);
-    })();
-  }, []);
 
-  // realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("rt-in-transit")
-      // new rows created already in transit
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "loads", filter: "status=eq.IN_TRANSIT" },
-        (payload) => {
-          setRows((cur) => [payload.new, ...cur.filter((r) => r.id !== payload.new.id)]);
-        }
-      )
-      // status changed to IN_TRANSIT
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "loads" },
-        (payload) => {
-          const was = payload.old.status;
-          const now = payload.new.status;
+      if (!ignore) {
+        if (error) console.error(error);
+        setRows(data || []);
+        setLoading(false);
+      }
+    }
 
-          // moved into IN_TRANSIT → add/update
-          if (now === "IN_TRANSIT" && was !== "IN_TRANSIT") {
-            setRows((cur) => [payload.new, ...cur.filter((r) => r.id !== payload.new.id)]);
-          }
-          // moved out of IN_TRANSIT → remove
-          if (was === "IN_TRANSIT" && now !== "IN_TRANSIT") {
-            setRows((cur) => cur.filter((r) => r.id !== payload.new.id));
-          }
-        }
-      )
-      // deletes
+    load();
+
+    // if you already have a realtime subscription, keep yours
+    const sub = supabase
+      .channel("loads-in-transit")
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "loads" },
+        { event: "*", schema: "public", table: "loads" },
         (payload) => {
-          setRows((cur) => cur.filter((r) => r.id !== payload.old.id));
+          setRows((prev) => {
+            // remove rows that are no longer IN_TRANSIT, update ones that are
+            const next = prev.filter((r) => r.id !== payload.new?.id);
+            if (payload.new?.status === "IN_TRANSIT") next.unshift(payload.new);
+            return next;
+          });
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      ignore = true;
+      supabase.removeChannel(sub);
     };
   }, []);
 
-  if (loading)
-    return (
-      <div className="p-6 text-neutral-400 flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading In-Transit Loads…
-      </div>
-    );
+  async function markAsDelivered(id) {
+    try {
+      setUpdatingId(id);
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from("loads")
+        .update({ status: "DELIVERED", updated_at: nowIso })
+        .eq("id", id);
+      if (error) throw error;
+
+      // Optimistic: remove from this list immediately
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      console.error(e);
+      alert("Could not mark as delivered.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold mb-2">In Transit</h1>
-      <p className="text-sm text-neutral-500 mb-4">Auto-updates when statuses change.</p>
+    <div className="space-y-2">
+      <h2 className="text-2xl font-semibold">In Transit</h2>
+      <p className="text-sm text-neutral-500">Auto-updates when statuses change.</p>
 
-      {rows.length === 0 ? (
-        <div className="text-neutral-400">No loads currently in transit.</div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-neutral-700/40">
-          <table className="min-w-full text-sm">
-            <thead className="bg-neutral-900/60 text-neutral-300">
-              <tr>
-                <th className="px-4 py-2 text-left">Created</th>
-                <th className="px-4 py-2 text-left">Shipper</th>
-                <th className="px-4 py-2 text-left">Origin</th>
-                <th className="px-4 py-2 text-left">Destination</th>
-                <th className="px-4 py-2 text-left">Dispatcher</th>
-                <th className="px-4 py-2 text-left">Rate</th>
-                <th className="px-4 py-2 text-left">Status</th>
+      <div className="rounded-2xl border bg-white dark:bg-neutral-900 overflow-hidden">
+        <div className="max-h-[60vh] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 dark:bg-neutral-800 border-b sticky top-0">
+              <tr className="text-left">
+                <th className="px-3 py-2 w-[180px]">Created</th>
+                <th className="px-3 py-2">Shipper</th>
+                <th className="px-3 py-2">Origin</th>
+                <th className="px-3 py-2">Destination</th>
+                <th className="px-3 py-2">Dispatcher</th>
+                <th className="px-3 py-2 text-right">Rate</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2 w-[140px]">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800">
-              {rows.map((l) => (
-                <tr key={l.id} className="hover:bg-neutral-800/40">
-                  <td className="px-4 py-2">{new Date(l.created_at).toLocaleString()}</td>
-                  <td className="px-4 py-2">{l.shipper}</td>
-                  <td className="px-4 py-2">{l.origin}</td>
-                  <td className="px-4 py-2">{l.destination}</td>
-                  <td className="px-4 py-2">{l.dispatcher ?? "—"}</td>
-                  <td className="px-4 py-2">${Number(l.rate || 0).toLocaleString()}</td>
-                  <td className="px-4 py-2 font-semibold text-amber-400">{l.status}</td>
+            <tbody>
+              {loading ? (
+                <tr><td className="px-3 py-4 text-neutral-500" colSpan={8}>Loading…</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td className="px-3 py-6 text-neutral-400" colSpan={8}>No loads in transit.</td></tr>
+              ) : rows.map((r) => (
+                <tr key={r.id} className="border-b last:border-0">
+                  <td className="px-3 py-2">{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="px-3 py-2">{r.shipper}</td>
+                  <td className="px-3 py-2">{r.origin}</td>
+                  <td className="px-3 py-2">{r.destination}</td>
+                  <td className="px-3 py-2">{r.dispatcher || "—"}</td>
+                  <td className="px-3 py-2 text-right">${Number(r.rate).toFixed(2)}</td>
+                  <td className="px-3 py-2">{r.status}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-end">
+                      <button
+                        onClick={() => markAsDelivered(r.id)}
+                        disabled={updatingId === r.id}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-60"
+                        title="Mark as Delivered"
+                      >
+                        {updatingId === r.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <CheckCheck className="w-4 h-4" />
+                        )}
+                        <span className="hidden sm:inline">Mark Delivered</span>
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }
