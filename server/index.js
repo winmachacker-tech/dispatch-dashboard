@@ -1,22 +1,13 @@
-const express = require('express');
-const cors = require('cors');
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App.jsx";
+import "./index.css";
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-// Health check route
-app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'dispatch-dashboard server', time: new Date().toISOString() });
-});
-
-// Example test route
-app.get('/api/ping', (req, res) => {
-  res.json({ message: 'pong' });
-});
-
-app.listen(PORT, () => {
-  console.log(`✅ Server listening on http://localhost:${PORT}`);
-});
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
