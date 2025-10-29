@@ -2,11 +2,13 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 
 // 🟢 Make sure these names match your actual filenames (case-sensitive).
+// src/App.jsx  (fix these lines)
 import DashboardPage from "./pages/dashboard.jsx";
-import LoadsPage from "./pages/loads.jsx";
-import InTransitPage from "./pages/intransit.jsx";
-import DeliveredPage from "./pages/delivered.jsx";
 import AvailableLoadsPage from "./pages/availableLoads.jsx";
+import InTransitPage from "./pages/InTransit.jsx";
+import DeliveredPage from "./pages/Delivered.jsx";
+import DriversPage from "./pages/drivers.jsx";
+
 
 export default function App() {
   return (
