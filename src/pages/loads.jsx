@@ -3,1121 +3,805 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import {
   PlusCircle,
-  Loader2,
   Search,
-  Trash2,
-  Edit3,
+  Loader2,
   CheckCheck,
-  Download,
-  ChevronDown,
+  Truck,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  BookmarkPlus,
-  Bookmark,
-  Trash,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Config
-// ───────────────────────────────────────────────────────────────────────────────
-const PAGE_SIZE = 20;
-const STATUSES = ["AVAILABLE", "IN_TRANSIT", "DELIVERED", "PROBLEM"];
-const EQUIPMENT = ["VAN", "REEFER", "FLATBED", "STEPDECK", "BOX"];
-const LS_FILTERS_KEY = "loads_filters_v1";
-const LS_PRESETS_KEY = "loads_presets_v1";
+const PAGE_SIZE = 25;
+const STATUS_OPTIONS = ["ALL", "AVAILABLE", "IN_TRANSIT", "DELIVERED"];
 
-function StatusBadge({ status }) {
-  const styles =
-    {
-      AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-      IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-      DELIVERED: "bg-violet-500/15 text-violet-300 border-violet-500/30",
-      PROBLEM: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-    }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs border ${styles}`}>
-      {status}
-    </span>
-  );
+/* ───────────────────────── Toast (no lib) ───────────────────────── */
+function toast(msg) {
+  const el = document.createElement("div");
+  el.className =
+    "fixed bottom-4 right-4 z-50 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
 }
 
-function fmtDate(d) {
-  if (!d) return "—";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "—";
-  return dt.toLocaleString(undefined, {
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function isOverdue(r) {
-  if (!r.delivery_date || r.status === "DELIVERED") return false;
-  const end = new Date(r.delivery_date);
-  end.setHours(23, 59, 59, 999);
-  return end < new Date();
-}
-
-function isToday(d) {
-  if (!d) return false;
-  const x = new Date(d);
-  const now = new Date();
-  return (
-    x.getFullYear() === now.getFullYear() &&
-    x.getMonth() === now.getMonth() &&
-    x.getDate() === now.getDate()
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Add / Edit Modal
-// ───────────────────────────────────────────────────────────────────────────────
-function LoadModal({ open, onClose, onSave, initial }) {
-  const [form, setForm] = useState(
-    initial || {
-      shipper: "",
-      reference: "",
-      origin: "",
-      pickup_date: "",
-      destination: "",
-      delivery_date: "",
-      dispatcher: "",
-      driver: "",
-      equipment_type: "VAN",
-      rate: "",
-      status: "AVAILABLE",
-      notes: "",
-    }
-  );
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (initial) setForm({ ...initial, rate: initial.rate ?? "" });
-    if (!initial && open) {
-      setForm({
-        shipper: "",
-        reference: "",
-        origin: "",
-        pickup_date: "",
-        destination: "",
-        delivery_date: "",
-        dispatcher: "",
-        driver: "",
-        equipment_type: "VAN",
-        rate: "",
-        status: "AVAILABLE",
-        notes: "",
-      });
-    }
-  }, [initial, open]);
-
-  const disabled =
-    !form.shipper.trim() ||
-    !form.origin.trim() ||
-    !form.destination.trim() ||
-    !form.dispatcher.trim();
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (disabled || saving) return;
-    setSaving(true);
-    try {
-      await onSave({
-        ...form,
-        rate: form.rate !== "" ? Number(form.rate) : null,
-        pickup_date: form.pickup_date || null,
-        delivery_date: form.delivery_date || null,
-      });
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <form
-        onSubmit={handleSubmit}
-        className="relative w-full max-w-3xl rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl"
-      >
-        <div className="px-6 py-5 border-b border-neutral-800">
-          <h3 className="text-lg font-semibold">{initial ? "Edit Load" : "Add Load"}</h3>
-          <p className="text-sm text-neutral-400">Minimal, only what dispatchers need.</p>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <LabeledInput
-              label="Shipper"
-              value={form.shipper}
-              onChange={(v) => setForm((f) => ({ ...f, shipper: v }))}
-              placeholder="Acme Corp"
-            />
-            <LabeledInput
-              label="Reference # (BOL / PO / Load#)"
-              value={form.reference}
-              onChange={(v) => setForm((f) => ({ ...f, reference: v }))}
-              placeholder="183025"
-            />
-            <LabeledSelect
-              label="Equipment"
-              value={form.equipment_type}
-              onChange={(v) => setForm((f) => ({ ...f, equipment_type: v }))}
-              options={EQUIPMENT}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LabeledInput
-              label="Origin"
-              value={form.origin}
-              onChange={(v) => setForm((f) => ({ ...f, origin: v }))}
-              placeholder="Sacramento, CA"
-            />
-            <LabeledInput
-              label="Destination"
-              value={form.destination}
-              onChange={(v) => setForm((f) => ({ ...f, destination: v }))}
-              placeholder="Dallas, TX"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LabeledInput
-              label="Pickup Date"
-              type="date"
-              value={form.pickup_date || ""}
-              onChange={(v) => setForm((f) => ({ ...f, pickup_date: v }))}
-            />
-            <LabeledInput
-              label="Delivery Date"
-              type="date"
-              value={form.delivery_date || ""}
-              onChange={(v) => setForm((f) => ({ ...f, delivery_date: v }))}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <LabeledInput
-              label="Dispatcher"
-              value={form.dispatcher}
-              onChange={(v) => setForm((f) => ({ ...f, dispatcher: v }))}
-              placeholder="Danielle"
-            />
-            <LabeledInput
-              label="Driver"
-              value={form.driver}
-              onChange={(v) => setForm((f) => ({ ...f, driver: v }))}
-              placeholder="Dan Wilson"
-            />
-            <LabeledInput
-              label="Rate (USD)"
-              type="number"
-              min="0"
-              value={form.rate}
-              onChange={(v) => setForm((f) => ({ ...f, rate: v }))}
-              placeholder="1800"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <LabeledSelect
-              label="Status"
-              value={form.status}
-              onChange={(v) => setForm((f) => ({ ...f, status: v }))}
-              options={STATUSES}
-            />
-            <div className="md:col-span-2">
-              <LabeledTextArea
-                label="Notes (internal)"
-                value={form.notes}
-                onChange={(v) => setForm((f) => ({ ...f, notes: v }))}
-                placeholder="Broker says driver must call 2h prior…"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="px-6 py-5 border-t border-neutral-800 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-neutral-700 hover:bg-neutral-900"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={disabled || saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
-            {initial ? "Save" : "Add Load"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function LabeledInput({ label, value, onChange, placeholder, type = "text", ...rest }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm text-neutral-300">{label}</span>
-      <input
-        className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        {...rest}
-      />
-    </label>
-  );
-}
-
-function LabeledSelect({ label, value, onChange, options }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm text-neutral-300">{label}</span>
-      <select
-        className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function LabeledTextArea({ label, value, onChange, placeholder }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm text-neutral-300">{label}</span>
-      <textarea
-        className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600 min-h-[80px]"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </label>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Toolbar (filters/search/sort/export + presets)
-// ───────────────────────────────────────────────────────────────────────────────
-function Toolbar({
-  q,
-  setQ,
-  status,
-  setStatus,
-  dispatcher,
-  setDispatcher,
-  dispatchers,
-  dateFrom,
-  setDateFrom,
-  dateTo,
-  setDateTo,
-  sortBy,
-  setSortBy,
-  onExport,
-  onAdd,
-  selectedCount,
-  onBulkSetStatus,
-  onBulkDelete,
-  presets,
-  onSavePreset,
-  onApplyPreset,
-  onDeletePreset,
-}) {
-  const [presetSel, setPresetSel] = useState("");
-
-  return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      {/* Left: Filters */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search shipper, ref, origin, destination, dispatcher, driver"
-            className="pl-9 pr-3 py-2 rounded-xl bg-neutral-900 border border-neutral-800 outline-none focus:border-neutral-600 w-80"
-          />
-        </div>
-
-        <div className="flex items-center gap-1">
-          {["ALL", ...STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s === "ALL" ? "" : s)}
-              className={[
-                "px-3 py-1.5 rounded-xl border text-sm",
-                s === (status || "ALL")
-                  ? "border-neutral-600 bg-neutral-900"
-                  : "border-neutral-800 hover:border-neutral-700",
-              ].join(" ")}
-            >
-              {s === "ALL" ? "All" : s.replace("_", " ")}
-            </button>
-          ))}
-        </div>
-
-        <select
-          value={dispatcher}
-          onChange={(e) => setDispatcher(e.target.value)}
-          className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-        >
-          <option value="">All Dispatchers</option>
-          {dispatchers.map((d) => (
-            <option key={d || "(Unassigned)"} value={d}>
-              {d || "(Unassigned)"}
-            </option>
-          ))}
-        </select>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-          />
-          <span className="text-neutral-500 text-sm">to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-neutral-400">Sort</span>
-          <div className="relative">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="appearance-none rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 pr-8 outline-none focus:border-neutral-600"
-            >
-              <option value="created_at.desc">Newest</option>
-              <option value="created_at.asc">Oldest</option>
-              <option value="delivery_date.asc">Delivery (soonest)</option>
-              <option value="delivery_date.desc">Delivery (latest)</option>
-              <option value="rate.desc">Rate (high → low)</option>
-              <option value="rate.asc">Rate (low → high)</option>
-              <option value="shipper.asc">Shipper (A→Z)</option>
-              <option value="shipper.desc">Shipper (Z→A)</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-neutral-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* Right: Presets + Actions */}
-      <div className="flex items-center gap-2">
-        {/* Presets */}
-        <div className="flex items-center gap-2 mr-2">
-          <button
-            onClick={onSavePreset}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 hover:border-neutral-700"
-            title="Save current filters"
-          >
-            <BookmarkPlus className="h-4 w-4" />
-            Save view
-          </button>
-
-          <div className="relative">
-            <select
-              value={presetSel}
-              onChange={(e) => setPresetSel(e.target.value)}
-              className="appearance-none rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 pr-8 outline-none focus:border-neutral-600"
-            >
-              <option value="">Presets…</option>
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-2.5 h-4 w-4 text-neutral-500" />
-          </div>
-
-          <button
-            disabled={!presetSel}
-            onClick={() => onApplyPreset(presetSel)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 disabled:opacity-50"
-            title="Apply preset"
-          >
-            <Bookmark className="h-4 w-4" />
-            Apply
-          </button>
-          <button
-            disabled={!presetSel}
-            onClick={() => {
-              onDeletePreset(presetSel);
-              setPresetSel("");
-            }}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 disabled:opacity-50 hover:border-red-600/40 hover:bg-red-500/10 text-red-300"
-            title="Delete preset"
-          >
-            <Trash className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Bulk actions */}
-        {selectedCount > 0 && (
-          <div className="flex items-center gap-2 mr-2">
-            <select
-              className="rounded-xl bg-neutral-900 border border-neutral-800 px-3 py-2 outline-none focus:border-neutral-600"
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                onBulkSetStatus(v);
-                e.target.value = "";
-              }}
-              defaultValue=""
-            >
-              <option value="">Bulk: set status…</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={onBulkDelete}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 hover:border-red-600/40 hover:bg-red-500/10 text-red-300"
-              title="Delete selected"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
-          </div>
-        )}
-
-        {/* Export + Add */}
-        <button
-          onClick={onExport}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 hover:border-neutral-700"
-          title="Export current view to CSV"
-        >
-          <Download className="h-4 w-4" />
-          Export
-        </button>
-
-        <button
-          onClick={onAdd}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white text-black font-medium"
-        >
-          <PlusCircle className="h-4 w-4" />
-          Add Load
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Main Page (with realtime + saved filters + instant patch)
-// ───────────────────────────────────────────────────────────────────────────────
+/* ───────────────────────── Page ───────────────────────── */
 export default function LoadsPage() {
+  // Data / UI
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
 
-  // Filters / UI state
+  // Filters
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
-  const [dispatcher, setDispatcher] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [sortBy, setSortBy] = useState("created_at.desc");
+  const [status, setStatus] = useState("ALL");
 
-  // Modal
-  const [openModal, setOpenModal] = useState(false);
-  const [editRow, setEditRow] = useState(null);
+  // Selection
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
-  // Bulk select
-  const [selected, setSelected] = useState(new Set());
+  // Add modal
+  const [showAdd, setShowAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    shipper: "",
+    origin: "",
+    destination: "",
+    dispatcher: "",
+    rate: "",
+  });
+  const [saveError, setSaveError] = useState("");
 
-  // Presets
-  const [presets, setPresets] = useState([]);
+  // Debounce search
+  const debounceRef = useRef(null);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchRows({ pageIndex: 0 });
+    }, 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
-  // Throttle refresh from realtime
-  const refreshLock = useRef(false);
+  // Fetch rows
+  async function fetchRows({ pageIndex = 0 } = {}) {
+    setLoading(true);
+    try {
+      let query = supabase.from("loads").select("*", { count: "exact" });
 
-  // Helper: patch a row instantly in UI
-  function patchRowInState(updated) {
-    setRows((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
+      if (status !== "ALL") query = query.eq("status", status);
+      if (q.trim()) {
+        query = query.or(
+          [
+            `shipper.ilike.%${q}%`,
+            `origin.ilike.%${q}%`,
+            `destination.ilike.%${q}%`,
+            `dispatcher.ilike.%${q}%`,
+          ].join(",")
+        );
+      }
+
+      query = query.order("created_at", { ascending: false });
+
+      const from = pageIndex * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
+      if (error) throw error;
+
+      setRows(data || []);
+      setHasMore(((count ?? 0) - (to + 1)) > 0);
+      setPage(pageIndex);
+      setSelectedIds(new Set()); // clear selection on new page
+    } catch (err) {
+      console.error("[Loads] fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  // Load saved filters on mount
+  // Initial + status change
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(LS_FILTERS_KEY) || "null");
-      if (saved) {
-        setQ(saved.q ?? "");
-        setStatus(saved.status ?? "");
-        setDispatcher(saved.dispatcher ?? "");
-        setDateFrom(saved.dateFrom ?? "");
-        setDateTo(saved.dateTo ?? "");
-        setSortBy(saved.sortBy ?? "created_at.desc");
-      }
-    } catch {}
-    try {
-      const savedPresets = JSON.parse(localStorage.getItem(LS_PRESETS_KEY) || "[]");
-      setPresets(Array.isArray(savedPresets) ? savedPresets : []);
-    } catch {}
-  }, []);
+    fetchRows({ pageIndex: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
-  // Persist filters whenever they change
+  // Supabase realtime
   useEffect(() => {
-    const payload = { q, status, dispatcher, dateFrom, dateTo, sortBy };
-    localStorage.setItem(LS_FILTERS_KEY, JSON.stringify(payload));
-  }, [q, status, dispatcher, dateFrom, dateTo, sortBy]);
-
-  // unique dispatchers from current page (fast)
-  const dispatchers = useMemo(() => {
-    const set = new Set(rows.map((r) => r.dispatcher).filter(Boolean));
-    return Array.from(set).sort((a, b) => (a || "").localeCompare(b || ""));
-  }, [rows]);
-
-  // Fetch with filters + pagination
-  useEffect(() => {
-    let ignore = false;
-    async function fetchData() {
-      setLoading(true);
-      try {
-        let query = supabase
-          .from("loads")
-          .select(
-            "id, created_at, updated_at, shipper, reference, origin, pickup_date, destination, delivery_date, dispatcher, driver, equipment_type, rate, status, notes"
-          )
-          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-
-        if (q.trim()) {
-          const term = `%${q.trim()}%`;
-          query = query.or(
-            [
-              `shipper.ilike.${term}`,
-              `reference.ilike.${term}`,
-              `origin.ilike.${term}`,
-              `destination.ilike.${term}`,
-              `dispatcher.ilike.${term}`,
-              `driver.ilike.${term}`,
-            ].join(",")
-          );
-        }
-        if (status) query = query.eq("status", status);
-        if (dispatcher) query = query.eq("dispatcher", dispatcher);
-        if (dateFrom) query = query.gte("created_at", new Date(dateFrom).toISOString());
-        if (dateTo) {
-          const end = new Date(dateTo);
-          end.setDate(end.getDate() + 1);
-          query = query.lt("created_at", end.toISOString());
-        }
-
-        const [col, dir] = sortBy.split(".");
-        query = query.order(col, { ascending: dir === "asc" });
-
-        const { data, error } = await query;
-        if (error) throw error;
-
-        if (!ignore) {
-          setRows(data || []);
-          setHasMore((data || []).length === PAGE_SIZE);
-          setSelected(new Set());
-        }
-      } catch (e) {
-        console.error("Supabase fetch error:", e);
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-    fetchData();
-    return () => {
-      ignore = true;
-    };
-  }, [q, status, dispatcher, dateFrom, dateTo, sortBy, page]);
-
-  // Realtime subscription (insert / update / delete)
-  useEffect(() => {
-    const channel = supabase
-      .channel("public:loads")
+    const ch = supabase
+      .channel("loads-ch")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "loads" },
-        () => {
-          if (refreshLock.current) return;
-          refreshLock.current = true;
-          setTimeout(() => {
-            refreshLock.current = false;
-          }, 600);
-          setPage((p) => p);
+        (payload) => {
+          setRows((prev) => {
+            if (payload.eventType === "INSERT") {
+              // only add if it matches current filters roughly
+              const r = payload.new;
+              if (
+                (status === "ALL" || r.status === status) &&
+                (!q ||
+                  [r.shipper, r.origin, r.destination, r.dispatcher]
+                    .filter(Boolean)
+                    .some((t) =>
+                      String(t).toLowerCase().includes(q.toLowerCase())
+                    ))
+              ) {
+                return [r, ...prev];
+              }
+              return prev;
+            }
+            if (payload.eventType === "UPDATE") {
+              return prev.map((r) =>
+                r.id === payload.new.id ? payload.new : r
+              );
+            }
+            if (payload.eventType === "DELETE") {
+              return prev.filter((r) => r.id !== payload.old.id);
+            }
+            return prev;
+          });
         }
       )
       .subscribe();
-
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ch);
     };
+  }, [q, status]);
+
+  // Keyboard: A opens modal
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key.toLowerCase() === "a") setShowAdd(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function refreshCurrentPage() {
-    setPage((p) => p);
-  }
+  const statusChips = useMemo(() => STATUS_OPTIONS, []);
 
-  // CRUD
-  async function handleAddSave(payload) {
-    const { error } = await supabase.from("loads").insert([
-      {
-        shipper: payload.shipper,
-        reference: payload.reference || null,
-        origin: payload.origin,
-        pickup_date: payload.pickup_date, // may be null
-        destination: payload.destination,
-        delivery_date: payload.delivery_date, // may be null
-        dispatcher: payload.dispatcher,
-        driver: payload.driver || null,
-        equipment_type: payload.equipment_type || "VAN",
-        rate: payload.rate,
-        status: payload.status || "AVAILABLE",
-        notes: payload.notes || null,
-      },
-    ]);
-    if (error) {
-      console.error("Insert error:", error);
-      return;
-    }
-    setPage(0);
-    refreshCurrentPage();
-  }
-
-  async function handleEditSave(payload) {
-    if (!editRow) return;
-
-    const { data, error } = await supabase
-      .from("loads")
-      .update({
-        shipper: payload.shipper,
-        reference: payload.reference || null,
-        origin: payload.origin,
-        pickup_date: payload.pickup_date,
-        destination: payload.destination,
-        delivery_date: payload.delivery_date,
-        dispatcher: payload.dispatcher,
-        driver: payload.driver || null,
-        equipment_type: payload.equipment_type || "VAN",
-        rate: payload.rate,
-        status: payload.status,
-        notes: payload.notes || null,
-      })
-      .eq("id", editRow.id)
-      .select(
-        "id, created_at, updated_at, shipper, reference, origin, pickup_date, destination, delivery_date, dispatcher, driver, equipment_type, rate, status, notes"
-      )
-      .single();
-
-    if (error) {
-      console.error("Update error:", error);
-      return;
-    }
-
-    patchRowInState(data);
-    setEditRow(null);
-    setOpenModal(false);
-    refreshCurrentPage();
-  }
-
-  async function handleDelete(id) {
-    const { error } = await supabase.from("loads").delete().eq("id", id);
-    if (error) {
-      console.error("Delete error:", error);
-      return;
-    }
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    refreshCurrentPage();
-  }
-
-  async function handleQuickStatus(id, nextStatus) {
-    const { data, error } = await supabase
-      .from("loads")
-      .update({ status: nextStatus })
-      .eq("id", id)
-      .select(
-        "id, created_at, updated_at, shipper, reference, origin, pickup_date, destination, delivery_date, dispatcher, driver, equipment_type, rate, status, notes"
-      )
-      .single();
-
-    if (error) {
-      console.error("Status update error:", error);
-      return;
-    }
-
-    patchRowInState(data);
-    refreshCurrentPage();
-  }
-
-  // Bulk ops
-  async function bulkSetStatus(nextStatus) {
-    if (selected.size === 0) return;
-    const ids = Array.from(selected);
-    const { error } = await supabase.from("loads").update({ status: nextStatus }).in("id", ids);
-    if (error) {
-      console.error("Bulk status error:", error);
-      return;
-    }
-    refreshCurrentPage();
-  }
-
-  async function bulkDelete() {
-    if (selected.size === 0) return;
-    const ids = Array.from(selected);
-    const { error } = await supabase.from("loads").delete().in("id", ids);
-    if (error) {
-      console.error("Bulk delete error:", error);
-      return;
-    }
-    refreshCurrentPage();
-  }
-
-  // CSV export of current view
-  function exportCSV() {
-    if (!rows.length) return;
-    const headers = [
-      "id",
-      "created_at",
-      "updated_at",
-      "shipper",
-      "reference",
-      "origin",
-      "pickup_date",
-      "destination",
-      "delivery_date",
-      "dispatcher",
-      "driver",
-      "equipment_type",
-      "rate",
-      "status",
-      "notes",
-    ];
-    const lines = [headers.join(",")];
-    rows.forEach((r) => {
-      const vals = headers.map((h) => {
-        let v = r[h] ?? "";
-        if (typeof v === "string") v = `"${v.replaceAll(`"`, `""`)}"`;
-        return v;
-      });
-      lines.push(vals.join(","));
+  // Add modal handlers
+  const handleOpenAdd = () => {
+    setForm({
+      shipper: "",
+      origin: "",
+      destination: "",
+      dispatcher: "",
+      rate: "",
     });
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `loads_export_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+    setSaveError("");
+    setShowAdd(true);
+  };
+  const handleField = (e) => {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+  };
+  const canSave =
+    form.shipper.trim() &&
+    form.origin.trim() &&
+    form.destination.trim() &&
+    form.rate.toString().trim();
 
-  // Selection helpers
-  const allChecked = rows.length > 0 && selected.size === rows.length;
-  function toggleAll() {
-    if (allChecked) setSelected(new Set());
-    else setSelected(new Set(rows.map((r) => r.id)));
-  }
-  function toggleOne(id) {
-    setSelected((prev) => {
+  const handleSave = async () => {
+    setSaveError("");
+    if (!canSave) {
+      setSaveError("Please fill in shipper, origin, destination, and rate.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        shipper: form.shipper.trim(),
+        origin: form.origin.trim(),
+        destination: form.destination.trim(),
+        dispatcher: form.dispatcher.trim() || null,
+        rate: form.rate ? Number(form.rate) : null,
+        status: "AVAILABLE",
+      };
+      const { data, error } = await supabase
+        .from("loads")
+        .insert([payload])
+        .select()
+        .single();
+      if (error) throw error;
+
+      setRows((prev) => (prev?.length ? [data, ...prev] : [data]));
+      setShowAdd(false);
+      toast("Load saved");
+    } catch (err) {
+      console.error("[Loads] save error:", err);
+      setSaveError(err?.message || "Failed to save. Check console/logs.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Selection
+  const allOnPageSelected =
+    rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+  const toggleSelectAll = () => {
+    if (allOnPageSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(rows.map((r) => r.id)));
+    }
+  };
+  const toggleSelectOne = (id) => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
+  // Updates
+  async function updateField(id, patch) {
+    try {
+      const { data, error } = await supabase
+        .from("loads")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      setRows((prev) => prev.map((r) => (r.id === id ? data : r)));
+      toast("Updated");
+    } catch (e) {
+      console.error("Update field error", e);
+      toast("Update failed");
+    }
   }
 
-  // Preset helpers
-  function currentFilterState() {
-    return { q, status, dispatcher, dateFrom, dateTo, sortBy };
-  }
-  function onSavePreset() {
-    const name = window.prompt("Name this view:");
-    if (!name) return;
-    const id = crypto.randomUUID();
-    const next = [...presets, { id, name, ...currentFilterState() }];
-    setPresets(next);
-    localStorage.setItem(LS_PRESETS_KEY, JSON.stringify(next));
-  }
-  function onApplyPreset(id) {
-    const p = presets.find((x) => x.id === id);
-    if (!p) return;
-    setQ(p.q ?? "");
-    setStatus(p.status ?? "");
-    setDispatcher(p.dispatcher ?? "");
-    setDateFrom(p.dateFrom ?? "");
-    setDateTo(p.dateTo ?? "");
-    setSortBy(p.sortBy ?? "created_at.desc");
-    setPage(0);
-  }
-  function onDeletePreset(id) {
-    const next = presets.filter((p) => p.id !== id);
-    setPresets(next);
-    localStorage.setItem(LS_PRESETS_KEY, JSON.stringify(next));
+  // Bulk actions
+  async function bulkUpdateStatus(newStatus) {
+    if (selectedIds.size === 0) return;
+    try {
+      const ids = Array.from(selectedIds);
+      const { data, error } = await supabase
+        .from("loads")
+        .update({ status: newStatus })
+        .in("id", ids)
+        .select();
+      if (error) throw error;
+      const map = new Map(data.map((d) => [d.id, d]));
+      setRows((prev) => prev.map((r) => map.get(r.id) || r));
+      setSelectedIds(new Set());
+      toast(`Marked ${data.length} as ${newStatus.replace("_", " ")}`);
+    } catch (e) {
+      console.error("Bulk update error", e);
+      toast("Bulk update failed");
+    }
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Loads</h1>
-          <p className="text-sm text-neutral-400">Dates, drivers, equipment — all at a glance.</p>
+    <div className="min-h-screen w-full overflow-x-hidden">
+      <div className="mx-auto w-full max-w-[1400px] px-4 lg:px-6">
+        {/* Header */}
+        <div className="flex items-center justify-between py-4">
+          <div>
+            <h1 className="text-xl font-semibold">Loads</h1>
+            <p className="text-sm text-neutral-400">
+              Manage active and historical loads
+            </p>
+          </div>
+          <button
+            onClick={handleOpenAdd}
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-2 hover:bg-neutral-900"
+          >
+            <PlusCircle className="h-5 w-5" />
+            Add Load
+          </button>
         </div>
-      </div>
 
-      {/* Toolbar */}
-      <Toolbar
-        q={q}
-        setQ={(v) => {
-          setPage(0);
-          setQ(v);
-        }}
-        status={status}
-        setStatus={(v) => {
-          setPage(0);
-          setStatus(v);
-        }}
-        dispatcher={dispatcher}
-        setDispatcher={(v) => {
-          setPage(0);
-          setDispatcher(v);
-        }}
-        dispatchers={dispatchers}
-        dateFrom={dateFrom}
-        setDateFrom={(v) => {
-          setPage(0);
-          setDateFrom(v);
-        }}
-        dateTo={dateTo}
-        setDateTo={(v) => {
-          setPage(0);
-          setDateTo(v);
-        }}
-        sortBy={sortBy}
-        setSortBy={(v) => {
-          setPage(0);
-          setSortBy(v);
-        }}
-        onExport={exportCSV}
-        onAdd={() => {
-          setEditRow(null);
-          setOpenModal(true);
-        }}
-        selectedCount={selected.size}
-        onBulkSetStatus={bulkSetStatus}
-        onBulkDelete={bulkDelete}
-        presets={presets}
-        onSavePreset={onSavePreset}
-        onApplyPreset={onApplyPreset}
-        onDeletePreset={onDeletePreset}
-      />
+        {/* Status legend */}
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <Badge color="emerald">Available</Badge>
+          <Badge color="sky">In Transit</Badge>
+          <Badge color="purple">Delivered</Badge>
+        </div>
 
-      {/* Table */}
-      <div className="rounded-2xl border border-neutral-800 overflow-hidden">
-        <div className="min-w-full overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-neutral-950/50 border-b border-neutral-800 sticky top-0">
-              <tr className="text-left">
-                <th className="px-4 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={allChecked}
-                    onChange={toggleAll}
-                    className="h-4 w-4 accent-white"
-                  />
+        {/* Filters / bulk actions */}
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search shipper, origin, destination, dispatcher…"
+              className="h-10 w-[260px] rounded-lg pl-9 pr-3 bg-neutral-900/40 border border-neutral-800 max-w-full"
+            />
+          </div>
+
+          <div className="flex items-center gap-1">
+            {statusChips.map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                className={`h-9 px-3 rounded-full border ${
+                  status === s
+                    ? "bg-neutral-100 text-neutral-900 border-neutral-200"
+                    : "bg-neutral-900/40 text-neutral-200 border-neutral-800 hover:bg-neutral-900"
+                }`}
+              >
+                {s.replace("_", " ")}
+              </button>
+            ))}
+          </div>
+
+          {/* Bulk actions */}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <button
+              disabled={selectedIds.size === 0}
+              onClick={() => bulkUpdateStatus("IN_TRANSIT")}
+              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 disabled:opacity-50"
+              title="Mark selected as In Transit"
+            >
+              <div className="inline-flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                In Transit
+              </div>
+            </button>
+            <button
+              disabled={selectedIds.size === 0}
+              onClick={() => bulkUpdateStatus("DELIVERED")}
+              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 disabled:opacity-50"
+              title="Mark selected as Delivered"
+            >
+              <div className="inline-flex items-center gap-2">
+                <CheckCheck className="h-4 w-4" />
+                Delivered
+              </div>
+            </button>
+            <button
+              onClick={() => fetchRows({ pageIndex: 0 })}
+              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block overflow-x-auto rounded-xl border border-neutral-800/60 bg-neutral-900/30">
+          <table className="w-full min-w-[1100px] table-fixed">
+            <thead className="sticky top-0 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60 z-10">
+              <tr className="text-left text-sm">
+                <th className="w-[46px] px-3 py-3">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="inline-flex items-center justify-center"
+                    title={allOnPageSelected ? "Unselect all" : "Select all"}
+                  >
+                    {allOnPageSelected ? (
+                      <CheckSquare className="h-4 w-4" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                  </button>
                 </th>
-                <th className="px-4 py-3">Shipper</th>
-                <th className="px-4 py-3">Ref</th>
-                <th className="px-4 py-3">Origin</th>
-                <th className="px-4 py-3">Pickup</th>
-                <th className="px-4 py-3">Destination</th>
-                <th className="px-4 py-3">Delivery</th>
-                <th className="px-4 py-3">Dispatcher</th>
-                <th className="px-4 py-3">Driver</th>
-                <th className="px-4 py-3">Equip</th>
-                <th className="px-4 py-3 text-right">Rate</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Updated</th>
-                <th className="px-4 py-3 text-right w-40">Actions</th>
+                <th className="w-[140px] px-4 py-3">Shipper</th>
+                <th className="w-[180px] px-4 py-3">Origin</th>
+                <th className="w-[180px] px-4 py-3">Destination</th>
+                <th className="w-[160px] px-4 py-3">Dispatcher</th>
+                <th className="w-[110px] px-4 py-3">Rate</th>
+                <th className="w-[130px] px-4 py-3">Status</th>
+                <th className="w-[180px] px-4 py-3">Created</th>
+                <th className="w-[140px] px-4 py-3">Actions</th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-neutral-800">
-              {loading &&
-                Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 15 }).map((__, j) => (
-                      <td key={j} className="px-4 py-4">
-                        <div className="h-4 w-24 bg-neutral-800 rounded" />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-
-              {!loading && rows.length === 0 && (
+            <tbody className="text-sm [&>tr:nth-child(even)]:bg-neutral-900/20">
+              {loading ? (
                 <tr>
-                  <td colSpan={15} className="px-6 py-12 text-center text-neutral-400">
-                    No loads found. Try adjusting filters or{" "}
-                    <button
-                      className="underline hover:text-neutral-200"
-                      onClick={() => setOpenModal(true)}
-                    >
-                      add a load
-                    </button>
-                    .
+                  <td colSpan={9} className="px-4 py-10 text-center">
+                    <div className="inline-flex items-center gap-2 text-neutral-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading…
+                    </div>
                   </td>
                 </tr>
-              )}
-
-              {!loading &&
-                rows.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={[
-                      "hover:bg-neutral-950/40",
-                      isOverdue(r) ? "bg-red-500/5" : "",
-                    ].join(" ")}
-                  >
-                    <td className="px-4 py-3 align-middle">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.id)}
-                        onChange={() => toggleOne(r.id)}
-                        className="h-4 w-4 accent-white"
-                      />
-                    </td>
-                    <td className="px-4 py-3">{r.shipper}</td>
-                    <td className="px-4 py-3">{r.reference || "—"}</td>
-                    <td className="px-4 py-3">{r.origin}</td>
-                    <td className="px-4 py-3">
-                      <span className={isToday(r.pickup_date) ? "underline" : ""}>
-                        {fmtDate(r.pickup_date)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">{r.destination}</td>
-                    <td className="px-4 py-3">
-                      <span className={isToday(r.delivery_date) ? "underline" : ""}>
-                        {fmtDate(r.delivery_date)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">{r.dispatcher}</td>
-                    <td className="px-4 py-3">{r.driver || "—"}</td>
-                    <td className="px-4 py-3">{r.equipment_type || "—"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {r.rate ? `$${r.rate.toLocaleString()}` : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={r.status} />
-                    </td>
-                    <td className="px-4 py-3">{fmtDate(r.created_at)}</td>
-                    <td className="px-4 py-3">{fmtDate(r.updated_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 justify-end">
-                        {/* Quick status cycle */}
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center">
+                    <div className="inline-flex items-center gap-2 text-neutral-400">
+                      <AlertTriangle className="h-4 w-4" />
+                      No loads found.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const selected = selectedIds.has(row.id);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`group border-t border-neutral-800/60 hover:bg-neutral-900/30 ${
+                        selected ? "bg-neutral-900/40" : ""
+                      }`}
+                    >
+                      <td className="px-3 py-3">
                         <button
-                          onClick={() =>
-                            handleQuickStatus(
-                              r.id,
-                              r.status === "AVAILABLE"
-                                ? "IN_TRANSIT"
-                                : r.status === "IN_TRANSIT"
-                                ? "DELIVERED"
-                                : "AVAILABLE"
-                            )
+                          onClick={() => toggleSelectOne(row.id)}
+                          className="inline-flex items-center justify-center"
+                          title={selected ? "Unselect" : "Select"}
+                        >
+                          {selected ? (
+                            <CheckSquare className="h-4 w-4" />
+                          ) : (
+                            <Square className="h-4 w-4" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
+                        {row.shipper || "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
+                        {row.origin || "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
+                        {row.destination || "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
+                        <EditableCell
+                          value={row.dispatcher}
+                          placeholder="-"
+                          onSave={(val) =>
+                            updateField(row.id, {
+                              dispatcher: val.trim() || null,
+                            })
                           }
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-neutral-800 hover:border-neutral-700"
-                          title="Advance status"
-                        >
-                          <CheckCheck className="h-4 w-4" />
-                          Next
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setEditRow(r);
-                            setOpenModal(true);
-                          }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-neutral-800 hover:border-neutral-700"
-                          title="Edit"
-                        >
-                          <Edit3 className="h-4 w-4" />
-                          Edit
-                        </button>
-
-                        <button
-                          onClick={() => handleDelete(r.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-neutral-800 hover:border-red-600/40 hover:bg-red-500/10 text-red-300"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <EditableCell
+                          value={row.rate}
+                          type="number"
+                          placeholder="-"
+                          onSave={(val) =>
+                            updateField(row.id, {
+                              rate:
+                                val === "" || val === null
+                                  ? null
+                                  : Number(val),
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={row.status} />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                          <button
+                            title="Mark In Transit"
+                            className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900"
+                            onClick={() =>
+                              updateField(row.id, { status: "IN_TRANSIT" })
+                            }
+                          >
+                            <Truck className="h-4 w-4" />
+                          </button>
+                          <button
+                            title="Mark Delivered"
+                            className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900"
+                            onClick={() =>
+                              updateField(row.id, { status: "DELIVERED" })
+                            }
+                          >
+                            <CheckCheck className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
+        {/* Mobile Card View */}
+        <div className="md:hidden grid gap-3">
+          {loading ? (
+            <div className="py-10 text-center text-neutral-400">
+              <Loader2 className="h-4 w-4 inline-block animate-spin mr-2" />
+              Loading…
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center text-neutral-400">
+              <AlertTriangle className="h-4 w-4 inline-block mr-2" />
+              No loads found.
+            </div>
+          ) : (
+            rows.map((r) => (
+              <LoadCard
+                key={r.id}
+                row={r}
+                selected={selectedIds.has(r.id)}
+                onToggle={() => toggleSelectOne(r.id)}
+                onUpdate={updateField}
+              />
+            ))
+          )}
+        </div>
+
         {/* Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-neutral-800 bg-neutral-950/40">
+        <div className="mt-3 flex items-center justify-between gap-2">
           <div className="text-sm text-neutral-400">
-            Page <span className="text-neutral-200">{page + 1}</span>
+            Page {page + 1}
+            {loading ? "" : ` • ${rows.length} rows`}
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 disabled:opacity-50"
+              disabled={page === 0 || loading}
+              onClick={() => fetchRows({ pageIndex: Math.max(0, page - 1) })}
+              className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 disabled:opacity-50"
             >
-              <ChevronLeft className="h-4 w-4" />
-              Prev
+              <ChevronLeft className="h-4 w-4" /> Prev
             </button>
             <button
-              onClick={() => setPage((p) => p + 1)}
-              disabled={!hasMore}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-800 disabled:opacity-50"
+              disabled={!hasMore || loading}
+              onClick={() => fetchRows({ pageIndex: page + 1 })}
+              className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 disabled:opacity-50"
             >
-              Next
-              <ChevronRight className="h-4 w-4" />
+              Next <ChevronRight className="h-4 w-4" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Modals */}
-      <LoadModal
-        open={openModal}
-        onClose={() => {
-          setOpenModal(false);
-          setEditRow(null);
-        }}
-        onSave={editRow ? handleEditSave : handleAddSave}
-        initial={editRow}
+      {/* Add Load Modal */}
+      {showAdd && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold">Add Load</h2>
+              <p className="text-sm text-neutral-400">
+                Minimal details required to save. You can enrich later.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field
+                label="Shipper *"
+                name="shipper"
+                value={form.shipper}
+                onChange={handleField}
+              />
+              <Field
+                label="Dispatcher"
+                name="dispatcher"
+                value={form.dispatcher}
+                onChange={handleField}
+              />
+              <Field
+                label="Origin *"
+                name="origin"
+                value={form.origin}
+                onChange={handleField}
+              />
+              <Field
+                label="Destination *"
+                name="destination"
+                value={form.destination}
+                onChange={handleField}
+              />
+              <Field
+                label="Rate (USD) *"
+                name="rate"
+                type="number"
+                value={form.rate}
+                onChange={handleField}
+              />
+            </div>
+
+            {saveError ? (
+              <div className="mt-3 text-sm text-red-400">{saveError}</div>
+            ) : null}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowAdd(false)}
+                className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-2 hover:bg-neutral-900"
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!canSave || saving}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600/10 px-4 py-2 text-emerald-300 hover:bg-emerald-600/20 disabled:opacity-50"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── UI helpers ───────────────────────── */
+
+function Field({ label, name, value, onChange, type = "text", placeholder }) {
+  return (
+    <label className="text-sm">
+      <div className="mb-1 text-neutral-300">{label}</div>
+      <input
+        name={name}
+        value={value}
+        onChange={onChange}
+        type={type}
+        placeholder={placeholder}
+        className="w-full h-10 rounded-lg px-3 bg-neutral-900/40 border border-neutral-800"
       />
+    </label>
+  );
+}
+
+function StatusBadge({ status }) {
+  const styles = {
+    AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+    DELIVERED: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+    DEFAULT: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
+  };
+  const cls = styles[status] || styles.DEFAULT;
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>
+      {status || "UNKNOWN"}
+    </span>
+  );
+}
+
+function EditableCell({ value, onSave, type = "text", placeholder = "" }) {
+  const [v, setV] = useState(value ?? "");
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => setV(value ?? ""), [value]);
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type={type}
+        value={v ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          onSave(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            setEditing(false);
+            onSave(v);
+          }
+          if (e.key === "Escape") {
+            setEditing(false);
+            setV(value ?? "");
+          }
+        }}
+        className="h-8 w-full rounded border border-neutral-700 bg-neutral-900 px-2"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-left w-full truncate hover:underline"
+      title="Click to edit"
+    >
+      {value ?? placeholder ?? "-"}
+    </button>
+  );
+}
+
+function Badge({ color = "neutral", children }) {
+  const map = {
+    emerald:
+      "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    sky: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+    purple:
+      "bg-purple-500/15 text-purple-300 border-purple-500/30",
+    neutral:
+      "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${map[color]}`}>
+      {children}
+    </span>
+  );
+}
+
+function LoadCard({ row, selected, onToggle, onUpdate }) {
+  return (
+    <div
+      className={`rounded-xl border border-neutral-800 bg-neutral-900/30 p-3 ${
+        selected ? "ring-1 ring-neutral-600" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-sm">
+          <div className="font-medium">{row.shipper || "-"}</div>
+          <div className="text-neutral-400">
+            {row.origin || "-"} → {row.destination || "-"}
+          </div>
+          <div className="mt-1">
+            <StatusBadge status={row.status} />
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-xs"
+        >
+          {selected ? "Selected" : "Select"}
+        </button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <div className="text-neutral-400 text-xs mb-1">Dispatcher</div>
+          <EditableCell
+            value={row.dispatcher}
+            placeholder="-"
+            onSave={(val) =>
+              onUpdate(row.id, { dispatcher: val.trim() || null })
+            }
+          />
+        </div>
+        <div>
+          <div className="text-neutral-400 text-xs mb-1">Rate</div>
+          <EditableCell
+            value={row.rate}
+            type="number"
+            placeholder="-"
+            onSave={(val) =>
+              onUpdate(row.id, {
+                rate: val === "" || val === null ? null : Number(val),
+              })
+            }
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          title="Mark In Transit"
+          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-sm"
+          onClick={() => onUpdate(row.id, { status: "IN_TRANSIT" })}
+        >
+          <div className="inline-flex items-center gap-1">
+            <Truck className="h-4 w-4" />
+            In Transit
+          </div>
+        </button>
+        <button
+          title="Mark Delivered"
+          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-sm"
+          onClick={() => onUpdate(row.id, { status: "DELIVERED" })}
+        >
+          <div className="inline-flex items-center gap-1">
+            <CheckCheck className="h-4 w-4" />
+            Delivered
+          </div>
+        </button>
+      </div>
+
+      <div className="mt-2 text-xs text-neutral-400">
+        {row.created_at ? new Date(row.created_at).toLocaleString() : "-"}
+      </div>
     </div>
   );
 }
