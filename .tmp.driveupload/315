@@ -31,3 +31,4 @@ f396a5b915c4547a6998352ced204617411d2353 976267ee66e20d521d2c80ab0a0999138f6ab87
 976267ee66e20d521d2c80ab0a0999138f6ab871 5f126537d650cc40b078dd15430b6d013a5b1676 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761701449 -0700	commit: Release: stable build (vite ok), SPA rewrites, loads/status helpers
 5f126537d650cc40b078dd15430b6d013a5b1676 5f126537d650cc40b078dd15430b6d013a5b1676 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761701530 -0700	checkout: moving from main to release/prod-20251028
 5f126537d650cc40b078dd15430b6d013a5b1676 4660e04bb0805d1604d6913b91d76b22a3138277 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761703431 -0700	commit: Fix: correct page import casing for Vercel build
+4660e04bb0805d1604d6913b91d76b22a3138277 45fdb78f6bc3625f143ae91496e116f5e808d43a Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761704994 -0700	commit: Prod: corrected page import casing + final nightly build
