@@ -1,0 +1,4 @@
+﻿.tmp.driveupload/
+.git/
+.vscode/
+**/*.map
