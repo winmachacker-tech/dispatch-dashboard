@@ -1,498 +1,402 @@
 ﻿// src/pages/dashboard.jsx
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import {
-  DollarSign,
-  Truck,
-  TriangleAlert,
-  PlusCircle,
-  CheckCheck,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  BarChart2,
+  Clock,
   Activity,
 } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid,
 } from "recharts";
 
-/** ---------- Minimal UI primitives (Apple-clean) ---------- */
-function Card({ children, className = "" }) {
+// ---------------- helpers ----------------
+const logErr = (label, error) => {
+  if (error) console.error(`[Dashboard] ${label} error`, error);
+};
+
+const STATUSES = [
+  "AVAILABLE",
+  "TENDERED",
+  "IN_TRANSIT",
+  "DELIVERED",
+  "CANCELLED",
+  "PROBLEM",
+];
+
+const iso = (d) => new Date(d).toISOString();
+
+const startOfWeek = (d) => {
+  const x = new Date(d);
+  const day = x.getDay(); // 0 Sun .. 6 Sat
+  const diff = (day + 6) % 7; // Monday start
+  x.setDate(x.getDate() - diff);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+const endOfWeek = (d) => {
+  const s = startOfWeek(d);
+  const x = new Date(s);
+  x.setDate(s.getDate() + 7);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+const startOfMonth = (d) => {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+function weekKey(date) {
+  // YYYY-Www (simple)
+  const x = new Date(date);
+  const year = x.getUTCFullYear();
+  const oneJan = new Date(Date.UTC(year, 0, 1));
+  const dayOfYear = Math.floor((x - oneJan) / 86400000) + 1;
+  const week = Math.ceil((dayOfYear + (oneJan.getUTCDay() || 7) - 1) / 7);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+function debounce(fn, ms) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// ---------------- main ----------------
+export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+
+  // KPIs
+  const [loadsThisWeek, setLoadsThisWeek] = useState(0);
+  const [loadsMTD, setLoadsMTD] = useState(0);
+  const [problemLoadsCount, setProblemLoadsCount] = useState(0);
+  const [problemRate7d, setProblemRate7d] = useState(0);
+  const [aging48hUndelivered, setAging48hUndelivered] = useState(0);
+  const [statusCounts, setStatusCounts] = useState({});
+
+  // Chart
+  const [weeklyTrend, setWeeklyTrend] = useState([]); // [{week, count}]
+
+  const sWeek = useMemo(() => startOfWeek(new Date()), []);
+  const eWeek = useMemo(() => endOfWeek(new Date()), []);
+  const sMonth = useMemo(() => startOfMonth(new Date()), []);
+
+  const debouncedRefreshRef = useRef(null);
+
+  // --------- generic count helper
+  async function countWhere(builderCb) {
+    let q = supabase.from("loads").select("id", { count: "exact", head: true });
+    q = builderCb(q);
+    const { count, error } = await q;
+    logErr("countWhere", error);
+    return typeof count === "number" ? count : 0;
+  }
+
+  // --------- problem loads via union (robust to column type)
+  async function getProblemLoadIdsSince(since = null) {
+    const q1 = supabase.from("loads").select("id").eq("status", "PROBLEM");
+    const q2 = supabase
+      .from("loads")
+      .select("id")
+      .or("problem_flag.is.true,problem_flag.eq.true");
+
+    const [a, b] = await Promise.all([
+      since ? q1.gte("created_at", iso(since)) : q1,
+      since ? q2.gte("created_at", iso(since)) : q2,
+    ]);
+
+    logErr("ProblemLoads_status", a.error);
+    logErr("ProblemLoads_flag", b.error);
+
+    const ids = new Set();
+    (a.data || []).forEach((r) => ids.add(r.id));
+    (b.data || []).forEach((r) => ids.add(r.id));
+    return Array.from(ids);
+  }
+
+  // --------- status counts (no .group())
+  async function getStatusCounts() {
+    const entries = await Promise.all(
+      STATUSES.map(async (s) => {
+        const c = await countWhere((q) => q.eq("status", s));
+        return [s, c];
+      })
+    );
+    return Object.fromEntries(entries);
+  }
+
+  // --------- aging: undelivered older than 48h
+  async function countUndeliveredOlderThan(hours = 48) {
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - hours);
+    // status != DELIVERED and created_at < cutoff
+    return await countWhere((q) =>
+      q.neq("status", "DELIVERED").lt("created_at", iso(cutoff))
+    );
+  }
+
+  async function computeCards() {
+    // Loads this week
+    {
+      const c = await countWhere((q) =>
+        q.gte("created_at", iso(sWeek)).lt("created_at", iso(eWeek))
+      );
+      setLoadsThisWeek(c);
+    }
+
+    // Loads MTD
+    {
+      const c = await countWhere((q) => q.gte("created_at", iso(sMonth)));
+      setLoadsMTD(c);
+    }
+
+    // Problem loads (all-time count)
+    {
+      const ids = await getProblemLoadIdsSince(null);
+      setProblemLoadsCount(ids.length);
+    }
+
+    // Problem rate (last 7d)
+    {
+      const since = new Date();
+      since.setDate(since.getDate() - 7);
+      since.setHours(0, 0, 0, 0);
+
+      const [total7d, probIds7d] = await Promise.all([
+        countWhere((q) => q.gte("created_at", iso(since))),
+        getProblemLoadIdsSince(since),
+      ]);
+      const rate = total7d > 0 ? (probIds7d.length / total7d) * 100 : 0;
+      setProblemRate7d(Math.round(rate));
+    }
+
+    // Aging 48h undelivered
+    {
+      const c = await countUndeliveredOlderThan(48);
+      setAging48hUndelivered(c);
+    }
+
+    // Status tiles
+    {
+      const map = await getStatusCounts();
+      setStatusCounts(map);
+    }
+  }
+
+  async function computeWeeklyTrend() {
+    // last 8 weeks by created_at
+    const since = new Date();
+    since.setDate(since.getDate() - 7 * 8);
+    since.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from("loads")
+      .select("id,created_at")
+      .gte("created_at", iso(since));
+    logErr("WeeklyTrend", error);
+
+    const buckets = {};
+    (data || []).forEach((r) => {
+      const k = weekKey(r.created_at);
+      buckets[k] = (buckets[k] || 0) + 1;
+    });
+
+    const out = [];
+    const now = new Date();
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i * 7);
+      const k = weekKey(d);
+      out.push({ week: k, count: buckets[k] || 0 });
+    }
+    setWeeklyTrend(out);
+  }
+
+  async function refreshAll() {
+    setLoading(true);
+    try {
+      await Promise.all([computeCards(), computeWeeklyTrend()]);
+      setLastRefreshed(new Date());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Realtime auto-refresh on loads changes
+  useEffect(() => {
+    debouncedRefreshRef.current = debounce(() => {
+      // don’t interrupt manual loading spinner; just refresh data
+      computeCards();
+      computeWeeklyTrend();
+      setLastRefreshed(new Date());
+    }, 500);
+
+    // RLS must allow realtime; table must be in publication
+    const channel = supabase
+      .channel("dashboard-loads")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => debouncedRefreshRef.current?.()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const niceTime = (d) =>
+    d ? new Date(d).toLocaleString(undefined, { hour12: true }) : "–";
+
+  // ---------------- UI ----------------
   return (
-    <div className={`rounded-2xl border border-neutral-800/50 bg-neutral-900/50 p-4 sm:p-5 shadow-sm ${className}`}>
-      {children}
+    <div className="min-h-screen px-4 sm:px-6 lg:px-8 py-6">
+      {/* Header */}
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-neutral-500">
+            Enterprise ops snapshot — live updates via Supabase Realtime
+          </p>
+        </div>
+        <button
+          onClick={refreshAll}
+          className="inline-flex items-center gap-2 rounded-2xl border border-neutral-200 dark:border-neutral-800 px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900 transition"
+          disabled={loading}
+          title="Refresh"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
+      {/* Meta */}
+      <div className="mb-6 text-xs text-neutral-500 flex items-center gap-2">
+        <Clock className="h-3.5 w-3.5" />
+        Last updated: {niceTime(lastRefreshed)}
+      </div>
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mb-6">
+        <Card
+          title="Loads This Week"
+          subtitle={`${sWeek.toLocaleDateString()} → ${new Date(
+            eWeek - 1
+          ).toLocaleDateString()}`}
+          icon={<BarChart2 className="h-5 w-5" />}
+          value={loadsThisWeek}
+        />
+        <Card
+          title="Loads MTD"
+          subtitle={`${sMonth.toLocaleDateString()} → Today`}
+          icon={<Activity className="h-5 w-5" />}
+          value={loadsMTD}
+        />
+        <Card
+          title="Problem Loads"
+          subtitle="All-time (status or flagged)"
+          icon={<AlertTriangle className="h-5 w-5 text-amber-500" />}
+          value={problemLoadsCount}
+          valueClass={
+            problemLoadsCount > 0 ? "text-amber-500" : "text-emerald-500"
+          }
+        />
+        <Card
+          title="Problem Rate (7d)"
+          subtitle="% of created loads"
+          icon={<AlertTriangle className="h-5 w-5" />}
+          value={`${problemRate7d}%`}
+        />
+        <Card
+          title="Aging > 48h"
+          subtitle="Undelivered"
+          icon={<Clock className="h-5 w-5" />}
+          value={aging48hUndelivered}
+          valueClass={
+            aging48hUndelivered > 0 ? "text-amber-500" : "text-emerald-500"
+          }
+        />
+        <Card
+          title="In Transit"
+          subtitle="Active on road"
+          icon={<BarChart2 className="h-5 w-5" />}
+          value={statusCounts.IN_TRANSIT ?? 0}
+        />
+      </div>
+
+      {/* Status distribution */}
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold mb-3">Status Overview</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {STATUSES.map((s) => (
+            <div
+              key={s}
+              className="rounded-2xl border border-neutral-200 dark:border-neutral-800 px-3 py-3"
+            >
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                {s.replaceAll("_", " ")}
+              </div>
+              <div className="text-2xl font-semibold">
+                {statusCounts[s] ?? 0}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Trend */}
+      <section className="min-w-0">
+        <h2 className="text-sm font-semibold mb-3">Loads Created — 8-Week Trend</h2>
+        <div className="h-64 min-w-0 rounded-2xl border border-neutral-200 dark:border-neutral-800 p-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={weeklyTrend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="currentColor" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
     </div>
   );
 }
 
-function Kpi({ label, value, icon: Icon, sub, accent = "" }) {
+// ---------------- small card component ----------------
+function Card({ title, subtitle, icon, value, valueClass }) {
   return (
-    <Card className="flex items-center gap-4">
-      <div className={`inline-flex size-11 items-center justify-center rounded-xl border border-neutral-700/60 ${accent}`}>
-        {Icon ? <Icon className="size-5" /> : null}
+    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-neutral-500">{icon}</div>
       </div>
-      <div className="flex-1">
-        <div className="text-sm text-neutral-400">{label}</div>
-        <div className="mt-0.5 text-2xl font-semibold tracking-tight">{value}</div>
-        {sub ? <div className="mt-1 text-xs text-neutral-500">{sub}</div> : null}
-      </div>
-    </Card>
-  );
-}
-
-function StatusTile({ label, value, tone = "neutral", onClick, sub }) {
-  const tones = {
-    emerald: "bg-emerald-500/10 border-emerald-700/40 text-emerald-300 hover:bg-emerald-500/15",
-    sky: "bg-sky-500/10 border-sky-700/40 text-sky-300 hover:bg-sky-500/15",
-    amber: "bg-amber-500/10 border-amber-700/40 text-amber-300 hover:bg-amber-500/15",
-    violet: "bg-violet-500/10 border-violet-700/40 text-violet-300 hover:bg-violet-500/15",
-    neutral: "bg-neutral-800/60 border-neutral-700/60 text-neutral-200 hover:bg-neutral-800",
-    red: "bg-red-500/10 border-red-700/40 text-red-300 hover:bg-red-500/15",
-  };
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${tones[tone]}`}
-    >
-      <div className="flex items-baseline justify-between">
-        <span className="text-sm">{label}</span>
-        <span className="text-xl font-semibold tracking-tight">{value}</span>
-      </div>
-      {sub ? <div className="mt-1 text-xs text-neutral-400">{sub}</div> : null}
-    </button>
-  );
-}
-
-function QuickButton({ label, icon: Icon, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="inline-flex items-center gap-2 rounded-xl border border-neutral-700/60 bg-neutral-900/40 px-3 py-2 text-sm hover:bg-neutral-800 transition"
-    >
-      <Icon className="size-4" />
-      {label}
-    </button>
-  );
-}
-
-/** ---------- Date helpers ---------- */
-const startOfWeek = () => {
-  const d = new Date();
-  const day = d.getDay(); // 0 Sun
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // ISO week starts Mon
-  const monday = new Date(d.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-};
-
-const lastWeekRange = () => {
-  const start = startOfWeek();
-  const lastMon = new Date(start);
-  lastMon.setDate(start.getDate() - 7);
-  const lastSun = new Date(start);
-  lastSun.setDate(start.getDate() - 1);
-  lastSun.setHours(23, 59, 59, 999);
-  return { start: lastMon, end: lastSun };
-};
-
-const formatDayShort = (d) =>
-  d.toLocaleDateString(undefined, { weekday: "short" }); // Mon, Tue...
-
-/** ---------- Dashboard Page ---------- */
-export default function DashboardPage() {
-  const nav = useNavigate();
-
-  const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState({
-    loadsThisWeek: 0,
-    revenueThisWeek: 0,
-    revenueLastWeek: 0,
-    activeTrucks: 0,
-    trucksMaint: 0,
-    trucksInactive: 0,
-    problemLoads: 0,
-    statusCounts: {
-      AVAILABLE: 0, PLANNED: 0, IN_TRANSIT: 0, DELIVERED: 0, PROBLEM: 0, CANCELLED: 0,
-    },
-  });
-  const [recent, setRecent] = useState([]);
-  const [weekRows, setWeekRows] = useState([]); // raw rows for chart
-  const [hasMargin, setHasMargin] = useState(false);
-  const [metric, setMetric] = useState("loads"); // "loads" | "revenue" | "margin"
-
-  const revenueDelta = useMemo(() => {
-    const { revenueThisWeek, revenueLastWeek } = counts;
-    if (!revenueLastWeek) return null;
-    const diff = revenueThisWeek - revenueLastWeek;
-    const pct = (diff / revenueLastWeek) * 100;
-    return { diff, pct };
-  }, [counts]);
-
-  // Build seven-day series (Mon..Sun) for chart
-  const chartData = useMemo(() => {
-    const base = [];
-    const monday = startOfWeek();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
-      base.push({ key, day: formatDayShort(d), loads: 0, revenue: 0, margin: 0 });
-    }
-
-    weekRows.forEach((row) => {
-      const dayKey = new Date(row.created_at).toISOString().slice(0, 10);
-      const idx = base.findIndex((b) => b.key === dayKey);
-      if (idx >= 0) {
-        base[idx].loads += 1;
-        base[idx].revenue += Number(row.rate) || 0;
-        const m =
-          typeof row.margin === "number"
-            ? row.margin
-            : typeof row.profit === "number"
-            ? row.profit
-            : 0;
-        base[idx].margin += m;
-      }
-    });
-
-    return base.map(({ day, loads, revenue, margin }) => ({
-      day,
-      loads,
-      revenue: Math.round(revenue),
-      margin: Math.round(margin),
-    }));
-  }, [weekRows]);
-
-  const activeSeriesKey = metric === "loads" ? "loads" : metric === "revenue" ? "revenue" : "margin";
-
-  useEffect(() => {
-    let ignore = false;
-    async function run() {
-      setLoading(true);
-
-      // ---------- Loads by status (counts) ----------
-      const statuses = ["AVAILABLE", "PLANNED", "IN_TRANSIT", "DELIVERED", "PROBLEM", "CANCELLED"];
-      const statusCounts = {};
-      await Promise.all(
-        statuses.map(async (s) => {
-          const { count, error } = await supabase
-            .from("loads")
-            .select("*", { count: "exact", head: true })
-            .eq("status", s);
-          if (error) console.error("status count error", s, error);
-          statusCounts[s] = count || 0;
-        })
-      );
-
-      // ---------- Loads created this week ----------
-      const weekStartIso = startOfWeek().toISOString();
-      const { data: weekLoads, error: weekErr } = await supabase
-        .from("loads")
-        .select("id, created_at, rate, status, margin, profit")
-        .gte("created_at", weekStartIso)
-        .order("created_at", { ascending: true });
-      if (weekErr) console.error("week loads error", weekErr);
-
-      const loadsThisWeek = weekLoads?.length || 0;
-      const revenueThisWeek =
-        weekLoads?.reduce((sum, r) => sum + (Number(r.rate) || 0), 0) || 0;
-
-      // ---------- Last week revenue for trend ----------
-      const { start: lwStart, end: lwEnd } = lastWeekRange();
-      const { data: lastWeek, error: lwErr } = await supabase
-        .from("loads")
-        .select("id, created_at, rate")
-        .gte("created_at", lwStart.toISOString())
-        .lte("created_at", lwEnd.toISOString());
-      if (lwErr) console.error("last week error", lwErr);
-
-      const revenueLastWeek =
-        lastWeek?.reduce((sum, r) => sum + (Number(r.rate) || 0), 0) || 0;
-
-      // ---------- Trucks (active/maintenance/inactive) ----------
-      const [{ count: tActive }, { count: tMaint }, { count: tInactive }] =
-        await Promise.all([
-          supabase.from("trucks").select("*", { count: "exact", head: true }).eq("status", "ACTIVE"),
-          supabase.from("trucks").select("*", { count: "exact", head: true }).eq("status", "MAINTENANCE"),
-          supabase.from("trucks").select("*", { count: "exact", head: true }).eq("status", "INACTIVE"),
-        ]);
-
-      // ---------- Problem loads ----------
-      const { count: pLoads } = await supabase
-        .from("loads")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "PROBLEM");
-
-      // ---------- Recent activity (latest 6 loads) ----------
-      const { data: recentLoads, error: rErr } = await supabase
-        .from("loads")
-        .select("id, created_at, shipper, origin, destination, status")
-        .order("created_at", { ascending: false })
-        .limit(6);
-      if (rErr) console.error("recent loads error", rErr);
-
-      if (ignore) return;
-      setCounts({
-        loadsThisWeek,
-        revenueThisWeek,
-        revenueLastWeek,
-        activeTrucks: tActive || 0,
-        trucksMaint: tMaint || 0,
-        trucksInactive: tInactive || 0,
-        problemLoads: pLoads || 0,
-        statusCounts,
-      });
-      setWeekRows(weekLoads || []);
-      setHasMargin(
-        !!weekLoads?.some(
-          (r) => typeof r.margin === "number" || typeof r.profit === "number"
-        )
-      );
-      setRecent(recentLoads || []);
-      setLoading(false);
-    }
-    run();
-
-    // Optional: lightweight refresh every 60s
-    const id = setInterval(() => {
-      supabase.from("loads").select("id", { count: "exact", head: true }).then(() => run());
-    }, 60000);
-
-    return () => {
-      ignore = true;
-      clearInterval(id);
-    };
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Dispatch Dashboard</h1>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi
-          label="Loads This Week"
-          value={counts.loadsThisWeek}
-          icon={Activity}
-          sub={`From ${new Date(startOfWeek()).toLocaleDateString()} to today`}
-        />
-        <Kpi
-          label="Week Revenue"
-          value={
-            "US$" +
-            counts.revenueThisWeek.toLocaleString(undefined, { maximumFractionDigits: 0 })
-          }
-          icon={DollarSign}
-          sub={
-            revenueDelta
-              ? `${revenueDelta.diff >= 0 ? "▲" : "▼"} ${Math.abs(revenueDelta.pct).toFixed(
-                  1
-                )}% vs last week`
-              : "—"
-          }
-          accent="bg-neutral-900/70"
-        />
-        <Kpi
-          label="Active Trucks"
-          value={counts.activeTrucks}
-          icon={Truck}
-          sub={`${counts.trucksMaint} in maintenance · ${counts.trucksInactive} inactive`}
-        />
-        <Kpi
-          label="Problem Loads"
-          value={counts.problemLoads}
-          icon={TriangleAlert}
-          sub="Requires attention"
-        />
-      </div>
-
-      {/* Status + Chart + Quick Actions */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {/* Status Board */}
-        <Card className="xl:col-span-1">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-medium text-neutral-300">Loads by Status</div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <StatusTile
-              label="Available"
-              value={counts.statusCounts.AVAILABLE}
-              tone="emerald"
-              onClick={() => nav("/availableLoads")}
-            />
-            <StatusTile
-              label="Planned"
-              value={counts.statusCounts.PLANNED}
-              tone="neutral"
-              onClick={() => nav("/loads?status=PLANNED")}
-            />
-            <StatusTile
-              label="In Transit"
-              value={counts.statusCounts.IN_TRANSIT}
-              tone="sky"
-              onClick={() => nav("/intransit")}
-            />
-            <StatusTile
-              label="Delivered"
-              value={counts.statusCounts.DELIVERED}
-              tone="violet"
-              onClick={() => nav("/delivered")}
-            />
-            <StatusTile
-              label="Problem"
-              value={counts.statusCounts.PROBLEM}
-              tone="amber"
-              onClick={() => nav("/loads?status=PROBLEM")}
-            />
-            <StatusTile
-              label="Cancelled"
-              value={counts.statusCounts.CANCELLED}
-              tone="neutral"
-              onClick={() => nav("/loads?status=CANCELLED")}
-            />
-          </div>
-        </Card>
-
-        {/* This Week — Overview (Recharts) */}
-        <Card className="xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-medium text-neutral-300">This Week — Overview</div>
-            <div className="text-xs text-neutral-500">Auto-refreshing</div>
-          </div>
-
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 6" stroke="rgba(120,120,120,0.2)" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  stroke="rgba(200,200,200,0.35)"
-                  tick={{ fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  stroke="rgba(200,200,200,0.35)"
-                  tick={{ fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={40}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  cursor={{ strokeDasharray: "3 3" }}
-                  contentStyle={{
-                    background: "rgba(20,20,20,0.9)",
-                    border: "1px solid rgba(80,80,80,0.6)",
-                    borderRadius: 12,
-                    padding: "8px 10px",
-                    color: "#e5e7eb",
-                  }}
-                  formatter={(value) =>
-                    metric === "loads" ? [value, "Loads"] :
-                    metric === "revenue" ? [`$${Number(value).toLocaleString()}`, "Revenue"] :
-                    [`$${Number(value).toLocaleString()}`, "Margin"]
-                  }
-                  labelStyle={{ color: "#9ca3af" }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey={activeSeriesKey}
-                  stroke="rgba(125,211,252,0.95)" // subtle glow-ish sky
-                  strokeWidth={2.25}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2 text-xs">
-            <button
-              onClick={() => setMetric("loads")}
-              className={`rounded-md border px-2 py-1 transition ${
-                metric === "loads"
-                  ? "border-sky-500/50 bg-sky-500/10 text-sky-300"
-                  : "border-neutral-700/60 bg-neutral-900/40 text-neutral-400 hover:bg-neutral-800"
-              }`}
-            >
-              Loads / day
-            </button>
-            <button
-              onClick={() => setMetric("revenue")}
-              className={`rounded-md border px-2 py-1 transition ${
-                metric === "revenue"
-                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                  : "border-neutral-700/60 bg-neutral-900/40 text-neutral-400 hover:bg-neutral-800"
-              }`}
-            >
-              Revenue / day
-            </button>
-            {hasMargin && (
-              <button
-                onClick={() => setMetric("margin")}
-                className={`rounded-md border px-2 py-1 transition ${
-                  metric === "margin"
-                    ? "border-violet-500/50 bg-violet-500/10 text-violet-300"
-                    : "border-neutral-700/60 bg-neutral-900/40 text-neutral-400 hover:bg-neutral-800"
-                }`}
-              >
-                Margin / day
-              </button>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-neutral-300">Quick Actions</div>
-        <div className="flex flex-wrap gap-2">
-          <QuickButton label="Add Load" icon={PlusCircle} onClick={() => nav("/loads?new=1")} />
-          <QuickButton label="Add Truck" icon={Truck} onClick={() => nav("/trucks?new=1")} />
-          <QuickButton label="View In Transit" icon={CheckCheck} onClick={() => nav("/intransit")} />
-          <QuickButton label="View Delivered" icon={CheckCheck} onClick={() => nav("/delivered")} />
-        </div>
-      </Card>
-
-      {/* Recent Activity */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-neutral-300">Recent Activity</div>
-        <div className="divide-y divide-neutral-800/80">
-          {(recent || []).map((r) => (
-            <div key={r.id} className="py-3">
-              <div className="flex items-center justify-between">
-                <div className="font-medium text-neutral-200 truncate">
-                  {r.shipper || "—"}{" "}
-                  <span className="text-neutral-500">
-                    · {r.origin || "—"} → {r.destination || "—"}
-                  </span>
-                </div>
-                <div className="text-xs text-neutral-500">
-                  {new Date(r.created_at).toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-1 text-xs text-neutral-400">{r.status}</div>
-            </div>
-          ))}
-          {!recent?.length && (
-            <div className="py-6 text-center text-sm text-neutral-500">No recent updates</div>
-          )}
-        </div>
-      </Card>
-
-      {loading && (
-        <div className="fixed bottom-4 right-4 rounded-xl border border-neutral-700/60 bg-neutral-900/80 px-3 py-2 text-xs text-neutral-400">
-          Refreshing…
-        </div>
-      )}
+      <div className={`text-3xl font-semibold ${valueClass || ""}`}>{value}</div>
+      {subtitle ? (
+        <div className="text-xs text-neutral-500 mt-1">{subtitle}</div>
+      ) : null}
     </div>
   );
 }
