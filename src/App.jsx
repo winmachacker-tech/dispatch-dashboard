@@ -1,14 +1,13 @@
 ﻿// src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
-// 🟢 Make sure these names match your actual filenames (case-sensitive).
-// src/App.jsx  (fix these lines)
+// ✅ Case-sensitive, complete imports
 import DashboardPage from "./pages/dashboard.jsx";
+import LoadsPage from "./pages/loads.jsx";
 import AvailableLoadsPage from "./pages/availableLoads.jsx";
 import InTransitPage from "./pages/InTransit.jsx";
 import DeliveredPage from "./pages/Delivered.jsx";
 import DriversPage from "./pages/drivers.jsx";
-
 
 export default function App() {
   return (
@@ -21,6 +20,7 @@ export default function App() {
           <Route path="/intransit" element={<InTransitPage />} />
           <Route path="/delivered" element={<DeliveredPage />} />
           <Route path="/available" element={<AvailableLoadsPage />} />
+          <Route path="/drivers" element={<DriversPage />} />
           <Route path="*" element={<div className="p-8">Not found.</div>} />
         </Routes>
       </main>
