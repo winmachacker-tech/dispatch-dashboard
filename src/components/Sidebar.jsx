@@ -6,21 +6,22 @@ import {
   PackageSearch,
   Route as RouteIcon,
   PackageCheck,
-  ClipboardList, // ðŸ‘ˆ new icon for Available Loads
+  ClipboardList,
+  Users, // 👈 new icon for Drivers
 } from "lucide-react";
 
 const items = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={18} /> },
   { to: "/loads", label: "Loads", icon: <PackageSearch size={18} /> },
   { to: "/trucks", label: "Trucks", icon: <Truck size={18} /> },
+  { to: "/drivers", label: "Drivers", icon: <Users size={18} /> }, // 👈 added Drivers
   { to: "/in-transit", label: "In Transit", icon: <RouteIcon size={18} /> },
   { to: "/delivered", label: "Delivered", icon: <PackageCheck size={18} /> },
-  { to: "/available-loads", label: "Available Loads", icon: <ClipboardList size={18} /> }, // âœ… Correct addition
+  { to: "/available-loads", label: "Available Loads", icon: <ClipboardList size={18} /> },
 ];
 
 export default function Sidebar() {
-  const base =
-    "flex items-center gap-2 px-3 py-2 rounded-lg transition-colors";
+  const base = "flex items-center gap-2 px-3 py-2 rounded-lg transition-colors";
   const active =
     "bg-neutral-200 text-neutral-900 dark:bg-neutral-800 dark:text-white";
   const idle =
@@ -47,4 +48,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-

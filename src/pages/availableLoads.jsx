@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿// src/pages/availableLoads.jsx
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import {
   PlusCircle,
@@ -11,20 +12,20 @@ import {
   Search,
   ChevronDown,
 } from "lucide-react";
+import { changeStatus } from "../lib/status.js";   // NEW: RPC helper
+import { subscribeLoads } from "../lib/loads.js";  // NEW: realtime helper
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // Status helpers
 const STATUSES = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
 
 function StatusBadge({ status }) {
   const styles =
     {
-      AVAILABLE:
-        "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
       IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
       PROBLEM: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-      DELIVERED:
-        "bg-violet-500/15 text-violet-300 border-violet-500/30",
+      DELIVERED: "bg-violet-500/15 text-violet-300 border-violet-500/30",
     }[status] ||
     "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
 
@@ -65,30 +66,7 @@ function IconButton({ title, onClick, children, disabled }) {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Add / Edit modal (simple, no extra lib)
-function Modal({ open, onClose, title, children, footer }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/60">
-      <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-400 hover:text-neutral-200"
-          >
-            âœ•
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-        {footer && <div className="px-5 py-4 border-t border-neutral-800">{footer}</div>}
-      </div>
-    </div>
-  );
-}
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 // Main page
 export default function AvailableLoadsPage() {
   const [rows, setRows] = useState([]);
@@ -112,33 +90,40 @@ export default function AvailableLoadsPage() {
     status: "AVAILABLE",
   });
 
-  // â”€â”€ Fetch
+  // ── Fetch (reusable so realtime can call it)
+  async function refresh() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("loads")
+      .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error("Supabase fetch error:", error);
+      setRows([]);
+    } else {
+      setRows(data || []);
+    }
+    setLastSynced(new Date());
+    setLoading(false);
+  }
+
   useEffect(() => {
     let ignore = false;
-    async function fetchLoads() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("loads")
-        .select("id, created_at, shipper, origin, destination, dispatcher, rate, status")
-        .order("created_at", { ascending: false });
-      if (!ignore) {
-        if (error) {
-          console.error("Supabase fetch error:", error);
-          setRows([]);
-        } else {
-          setRows(data || []);
-        }
-        setLastSynced(new Date());
-        setLoading(false);
-      }
-    }
-    fetchLoads();
+    (async () => {
+      if (!ignore) await refresh();
+    })();
     return () => {
       ignore = true;
     };
   }, []);
 
-  // â”€â”€ Derived list (filter + search + sort)
+  // ── Realtime: on any INSERT/UPDATE/DELETE, refresh this list
+  useEffect(() => {
+    const off = subscribeLoads(() => refresh());
+    return () => off();
+  }, []);
+
+  // ── Derived list (filter + search + sort)
   const list = useMemo(() => {
     let out = rows;
 
@@ -163,7 +148,7 @@ export default function AvailableLoadsPage() {
           : new Date(bv) - new Date(av);
       }
       if (col === "rate") {
-        return dir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
+        return dir === "asc" ? Number(av ?? 0) - Number(bv ?? 0) : Number(bv ?? 0) - Number(av ?? 0);
       }
       const as = String(av ?? "");
       const bs = String(bv ?? "");
@@ -173,17 +158,25 @@ export default function AvailableLoadsPage() {
     return out;
   }, [rows, filter, query, sortBy]);
 
-  // â”€â”€ Actions
-  async function updateStatus(id, status) {
-    setBusyId(id);
-    const prev = rows;
-    setRows((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)));
-    const { error } = await supabase.from("loads").update({ status }).eq("id", id);
-    if (error) {
-      console.error(error);
-      setRows(prev); // revert on failure
+  // ── Actions
+
+  // Use the RPC for status transitions so audit & timestamps are correct
+  async function updateStatus(id, toStatus) {
+    try {
+      setBusyId(id);
+      // Optimistic UI (optional)
+      const prev = rows;
+      setRows((xs) => xs.map((x) => (x.id === id ? { ...x, status: toStatus } : x)));
+
+      await changeStatus(id, toStatus); // ← RPC call (update_load_status)
+      // Realtime will call refresh() and reconcile; nothing else needed
+    } catch (err) {
+      console.error("Status change failed:", err);
+      // On failure, re-sync from server
+      refresh();
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   async function removeRow(id) {
@@ -268,7 +261,7 @@ export default function AvailableLoadsPage() {
     setEditing(null);
   }
 
-  // â”€â”€ UI
+  // ── UI
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header row */}
@@ -276,17 +269,16 @@ export default function AvailableLoadsPage() {
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Available Loads</h2>
           <span className="text-xs text-neutral-500">
-            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "â€”"}
+            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "—"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sort dropdown */}
+          {/* Sort dropdown (basic select for now) */}
           <div className="relative">
             <button className="inline-flex items-center gap-1 text-xs bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-lg">
               <ChevronDown size={14} />
               Sort
             </button>
-            <div className="absolute right-0 mt-1 w-44 rounded-xl border border-neutral-800 bg-neutral-950 shadow-lg hidden group-focus:block"></div>
           </div>
           <select
             value={sortBy}
@@ -295,9 +287,9 @@ export default function AvailableLoadsPage() {
           >
             <option value="created_at.desc">Newest</option>
             <option value="created_at.asc">Oldest</option>
-            <option value="rate.desc">Rate â†“</option>
-            <option value="rate.asc">Rate â†‘</option>
-            <option value="shipper.asc">Shipper Aâ€“Z</option>
+            <option value="rate.desc">Rate ↓</option>
+            <option value="rate.asc">Rate ↑</option>
+            <option value="shipper.asc">Shipper A–Z</option>
           </select>
           <button
             onClick={openAdd}
@@ -333,7 +325,7 @@ export default function AvailableLoadsPage() {
       {loading ? (
         <div className="flex items-center gap-2 text-neutral-400">
           <Loader2 className="animate-spin" size={16} />
-          Loadingâ€¦
+          Loading…
         </div>
       ) : list.length === 0 ? (
         <div className="text-neutral-400 text-sm">No loads match this view.</div>
@@ -348,13 +340,13 @@ export default function AvailableLoadsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium">
-                    {row.origin || "â€”"}, &nbsp;â†’&nbsp; {row.destination || "â€”"}
+                    {row.origin || "—"} → {row.destination || "—"}
                   </div>
                   <div className="mt-1 text-xs text-neutral-400 flex flex-wrap gap-x-3 gap-y-1">
-                    <span>ðŸ’° {row.rate ? `$${row.rate}` : "â€”"}</span>
-                    <span>ðŸ“¦ {row.shipper || "â€”"}</span>
-                    <span>ðŸ§­ {new Date(row.created_at).toLocaleDateString()}</span>
-                    <span>ðŸ‘¤ {row.dispatcher || "â€”"}</span>
+                    <span>💵 {row.rate ? `$${row.rate}` : "—"}</span>
+                    <span>📦 {row.shipper || "—"}</span>
+                    <span>🗓 {new Date(row.created_at).toLocaleDateString()}</span>
+                    <span>👤 {row.dispatcher || "—"}</span>
                   </div>
                 </div>
                 <StatusBadge status={row.status} />
@@ -509,3 +501,22 @@ export default function AvailableLoadsPage() {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Add / Edit modal (simple, no extra lib)
+function Modal({ open, onClose, title, children, footer }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/60">
+      <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
+            ✕
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+        {footer && <div className="px-5 py-4 border-t border-neutral-800">{footer}</div>}
+      </div>
+    </div>
+  );
+}

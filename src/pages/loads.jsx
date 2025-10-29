@@ -1,36 +1,37 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿// src/pages/loads.jsx
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import {
-  PlusCircle,
+  Loader2,
+  UserPlus,
+  X as XIcon,
   CheckCheck,
   Truck,
-  AlertTriangle,
-  Trash2,
-  Edit3,
-  Loader2,
   Search,
-  ChevronDown,
-  DollarSign,
-  CalendarDays,
-  UserRound,
-  ArrowRight,
-  X,
 } from "lucide-react";
 
-console.log("supabase client OK?", typeof supabase === "object");
+const STATUSES = ["PLANNED", "IN_TRANSIT", "DELIVERED", "CANCELLED"];
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Shared bits
-const STATUS_LIST = ["AVAILABLE", "IN_TRANSIT", "PROBLEM", "DELIVERED"];
-const FILTERS = ["ALL", ...STATUS_LIST];
+// Utility: build a safe display name from whatever columns exist
+function toDriverDisplayName(d) {
+  if (!d) return "Unknown";
+  return (
+    d.name ||
+    d.full_name ||
+    [d.first_name, d.last_name].filter(Boolean).join(" ") ||
+    d.driver_name ||
+    d.driver ||
+    `Driver ${d.id}`
+  );
+}
 
 function StatusBadge({ status }) {
   const styles =
     {
-      AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      PLANNED: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
       IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-      PROBLEM: "bg-amber-500/15 text-amber-300 border-amber-500/30",
       DELIVERED: "bg-violet-500/15 text-violet-300 border-violet-500/30",
+      CANCELLED: "bg-rose-500/15 text-rose-300 border-rose-500/30",
     }[status] || "bg-neutral-700/30 text-neutral-300 border-neutral-600/30";
 
   return (
@@ -40,479 +41,341 @@ function StatusBadge({ status }) {
   );
 }
 
-function Pill({ active, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1 rounded-lg text-xs border transition ${
-        active
-          ? "bg-neutral-800 border-neutral-700 text-neutral-100"
-          : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
+function AssignDriverDropdown({ load, onAssigned, onUnassigned }) {
+  const [open, setOpen] = useState(false);
+  const [drivers, setDrivers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [assigningId, setAssigningId] = useState(null);
+  const [error, setError] = useState(null);
 
-function IconButton({ title, onClick, disabled, children }) {
-  return (
-    <button
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border transition
-        ${disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-800"}
-        border-neutral-800 bg-neutral-900 text-neutral-300`}
-    >
-      {children}
-    </button>
-  );
-}
+  async function fetchAvailableDrivers() {
+    setLoading(true);
+    setError(null);
+    // Fetch all columns to avoid schema mismatch (no hard-coded "name")
+    const { data, error } = await supabase.from("drivers").select("*");
+    if (error) setError(error.message);
+    else setDrivers(data || []);
+    setLoading(false);
+  }
 
-function Modal({ open, onClose, title, children, footer }) {
-  if (!open) return null;
+  useEffect(() => {
+    if (open) fetchAvailableDrivers();
+  }, [open]);
+
+  const assignedDriver = load.driver || null;
+
+  async function handleAssign(driverId) {
+    setAssigningId(driverId);
+    setError(null);
+
+    const { error: upErr } = await supabase
+      .from("loads")
+      .update({ driver_id: driverId })
+      .eq("id", load.id);
+
+    if (upErr) {
+      setError(upErr.message || "Failed to assign driver.");
+      setAssigningId(null);
+      return;
+    }
+
+    await supabase.from("drivers").update({ status: "ON_LOAD" }).eq("id", driverId);
+
+    setAssigningId(null);
+    setOpen(false);
+    onAssigned?.(driverId);
+  }
+
+  async function handleUnassign() {
+    if (!load.driver_id) return;
+
+    setAssigningId(load.driver_id);
+    setError(null);
+
+    const { error: upErr } = await supabase
+      .from("loads")
+      .update({ driver_id: null })
+      .eq("id", load.id);
+
+    if (upErr) {
+      setError(upErr.message || "Failed to unassign driver.");
+      setAssigningId(null);
+      return;
+    }
+
+    await supabase.from("drivers").update({ status: "AVAILABLE" }).eq("id", load.driver_id);
+
+    setAssigningId(null);
+    onUnassigned?.();
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/60">
-      <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
-            <X size={16} />
+    <div className="relative">
+      {assignedDriver ? (
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-neutral-200">
+            <span className="opacity-70">Driver:</span>{" "}
+            <span className="font-medium">{toDriverDisplayName(assignedDriver)}</span>
+          </div>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="px-2 py-1 text-xs rounded-lg border border-neutral-700 hover:border-neutral-500 transition"
+          >
+            Change
+          </button>
+          <button
+            onClick={handleUnassign}
+            disabled={assigningId === load.driver_id}
+            className="px-2 py-1 text-xs rounded-lg border border-rose-700 text-rose-300 hover:border-rose-500 transition inline-flex items-center gap-1"
+            title="Unassign driver"
+          >
+            {assigningId === load.driver_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XIcon className="h-3.5 w-3.5" />}
+            Remove
           </button>
         </div>
-        <div className="p-5">{children}</div>
-        {footer && <div className="px-5 py-4 border-t border-neutral-800">{footer}</div>}
-      </div>
+      ) : (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-neutral-700 hover:border-neutral-500 transition text-sm"
+        >
+          <UserPlus className="h-4 w-4" />
+          Assign Driver
+        </button>
+      )}
+
+      {open && (
+        <div className="absolute z-10 mt-2 w-72 rounded-xl border border-neutral-700 bg-neutral-900/95 backdrop-blur p-3 shadow-xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Truck className="h-4 w-4 opacity-70" />
+            <div className="text-sm font-medium">Select a driver</div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-neutral-300 py-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : error ? (
+            <div className="text-sm text-rose-300">{error}</div>
+          ) : (
+            <div className="max-h-56 overflow-auto custom-scrollbar space-y-1">
+              {(drivers || [])
+                .filter((d) => d.status === "AVAILABLE" || d.id === load.driver_id)
+                .map((d) => {
+                  const label = toDriverDisplayName(d);
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => handleAssign(d.id)}
+                      disabled={assigningId === d.id}
+                      className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-neutral-800/60 transition border border-transparent hover:border-neutral-700"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium">{label}</div>
+                          <div className="text-xs opacity-60">{d.phone || "No phone on file"}</div>
+                        </div>
+                        {assigningId === d.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : d.id === load.driver_id ? (
+                          <span className="text-xs opacity-70">Assigned</span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              {drivers.filter((d) => d.status === "AVAILABLE").length === 0 && (
+                <div className="text-xs opacity-70 px-2.5 py-2">No AVAILABLE drivers</div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-2 flex justify-end">
+            <button
+              onClick={() => setOpen(false)}
+              className="px-2.5 py-1.5 rounded-lg text-sm border border-neutral-700 hover:border-neutral-500 transition"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Main
 export default function LoadsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null);
-  const [filter, setFilter] = useState("ALL");
-  const [query, setQuery] = useState("");
-  const [sortBy, setSortBy] = useState("created_at.desc");
-  const [lastSynced, setLastSynced] = useState(null);
+  const [submittingId, setSubmittingId] = useState(null);
+  const [q, setQ] = useState("");
 
-  // Add/Edit modal state
-  const [openForm, setOpenForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    shipper: "",
-    origin: "",
-    destination: "",
-    dispatcher: "",
-    rate: "",
-    status: "AVAILABLE",
-  });
+  async function fetchLoads() {
+    setLoading(true);
 
-  // ── Fetch all loads
-  useEffect(() => {
-    let ignore = false;
-    async function run() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("loads")
-        .select(
-          "id, created_at, shipper, origin, destination, dispatcher, rate, status"
-        )
-        .order("created_at", { ascending: false });
+    // 1) Fetch loads (no embedded join)
+    const { data: loads, error: loadsErr } = await supabase
+      .from("loads")
+      .select("id, created_at, shipper, origin, destination, dispatcher, rate, status, driver_id")
+      .order("created_at", { ascending: false });
 
-      if (!ignore) {
-        if (error) {
-          console.error("Supabase fetch error:", error);
-          setRows([]);
-        } else {
-          setRows(data || []);
-        }
-        setLastSynced(new Date());
-        setLoading(false);
+    if (loadsErr) {
+      console.error("Supabase error (fetch loads):", loadsErr);
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
+    // 2) Fetch referenced drivers (get * so we can build display names)
+    const driverIds = Array.from(
+      new Set((loads || []).map((l) => l.driver_id).filter((v) => v != null))
+    );
+
+    let driverMap = {};
+    if (driverIds.length > 0) {
+      const { data: drivers, error: drvErr } = await supabase
+        .from("drivers")
+        .select("*")
+        .in("id", driverIds);
+
+      if (drvErr) {
+        console.error("Supabase error (fetch drivers):", drvErr);
+      } else {
+        driverMap = (drivers || []).reduce((acc, d) => {
+          acc[d.id] = d;
+          return acc;
+        }, {});
       }
     }
-    run();
-    return () => {
-      ignore = true;
-    };
+
+    const merged = (loads || []).map((l) => ({
+      ...l,
+      driver: l.driver_id ? driverMap[l.driver_id] || null : null,
+    }));
+
+    setRows(merged);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchLoads();
   }, []);
 
-  // ── Derived list (filter, search, sort)
-  const list = useMemo(() => {
-    let out = rows;
-
-    if (filter !== "ALL") out = out.filter((r) => r.status === filter);
-
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      out = out.filter((r) =>
-        [r.shipper, r.origin, r.destination, r.dispatcher, r.status]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(q))
+  const filtered = useMemo(() => {
+    const key = q.trim().toLowerCase();
+    if (!key) return rows;
+    return rows.filter((r) => {
+      return (
+        (r.shipper || "").toLowerCase().includes(key) ||
+        (r.origin || "").toLowerCase().includes(key) ||
+        (r.destination || "").toLowerCase().includes(key) ||
+        (r.dispatcher || "").toLowerCase().includes(key) ||
+        (toDriverDisplayName(r.driver) || "").toLowerCase().includes(key)
       );
-    }
-
-    const [col, dir] = sortBy.split(".");
-    out = [...out].sort((a, b) => {
-      const av = a[col];
-      const bv = b[col];
-      if (col === "created_at") {
-        return dir === "asc"
-          ? new Date(av) - new Date(bv)
-          : new Date(bv) - new Date(av);
-      }
-      if (col === "rate") {
-        return dir === "asc" ? Number(av || 0) - Number(bv || 0) : Number(bv || 0) - Number(av || 0);
-      }
-      const as = String(av ?? "");
-      const bs = String(bv ?? "");
-      return dir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
     });
+  }, [rows, q]);
 
-    return out;
-  }, [rows, filter, query, sortBy]);
+  async function handleStatusChange(load, newStatus) {
+    setSubmittingId(load.id);
 
-  // ── Row actions
-  async function updateStatus(id, status) {
-    setBusyId(id);
-    const prev = rows;
-    setRows((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)));
-    const { error } = await supabase.from("loads").update({ status }).eq("id", id);
-    if (error) {
-      console.error(error);
-      setRows(prev);
-    }
-    setBusyId(null);
-  }
+    const { error: upErr } = await supabase
+      .from("loads")
+      .update({ status: newStatus })
+      .eq("id", load.id);
 
-  async function removeRow(id) {
-    if (!confirm("Delete this load?")) return;
-    setBusyId(id);
-    const prev = rows;
-    setRows((xs) => xs.filter((x) => x.id !== id));
-    const { error } = await supabase.from("loads").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      setRows(prev);
-    }
-    setBusyId(null);
-  }
-
-  function openAdd() {
-    setEditing(null);
-    setForm({
-      shipper: "",
-      origin: "",
-      destination: "",
-      dispatcher: "",
-      rate: "",
-      status: "AVAILABLE",
-    });
-    setOpenForm(true);
-  }
-
-  function openEdit(row) {
-    setEditing(row.id);
-    setForm({
-      shipper: row.shipper || "",
-      origin: row.origin || "",
-      destination: row.destination || "",
-      dispatcher: row.dispatcher || "",
-      rate: row.rate ?? "",
-      status: row.status || "AVAILABLE",
-    });
-    setOpenForm(true);
-  }
-
-  async function submitForm(e) {
-    e.preventDefault();
-    setSaving(true);
-
-    const payload = {
-      shipper: form.shipper?.trim() || null,
-      origin: form.origin?.trim() || null,
-      destination: form.destination?.trim() || null,
-      dispatcher: form.dispatcher?.trim() || null,
-      rate: form.rate === "" ? null : Number(form.rate),
-      status: form.status || "AVAILABLE",
-    };
-
-    if (editing) {
-      const { data, error } = await supabase
-        .from("loads")
-        .update(payload)
-        .eq("id", editing)
-        .select()
-        .single();
-      if (error) console.error(error);
-      else setRows((xs) => xs.map((x) => (x.id === editing ? data : x)));
-    } else {
-      const { data, error } = await supabase
-        .from("loads")
-        .insert(payload)
-        .select()
-        .single();
-      if (error) console.error(error);
-      else if (data) setRows((xs) => [data, ...xs]);
+    if (upErr) {
+      console.error("Update status error:", upErr);
+      setSubmittingId(null);
+      return;
     }
 
-    setSaving(false);
-    setOpenForm(false);
-    setEditing(null);
+    if (newStatus === "DELIVERED" && load.driver_id) {
+      await supabase.from("loads").update({ driver_id: null }).eq("id", load.id);
+      await supabase.from("drivers").update({ status: "AVAILABLE" }).eq("id", load.driver_id);
+    }
+
+    setSubmittingId(null);
+    fetchLoads();
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">Loads</h2>
-          <span className="text-xs text-neutral-500">
-            {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "—"}
-          </span>
-        </div>
+    <div className="p-4 md:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl md:text-2xl font-semibold">Loads</h1>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <button className="inline-flex items-center gap-1 text-xs bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-lg">
-              <ChevronDown size={14} />
-              Sort
-            </button>
+            <Search className="h-4 w-4 opacity-60 absolute left-2 top-2.5" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search shipper / origin / driver…"
+              className="pl-8 pr-3 py-2 rounded-xl bg-neutral-900/60 border border-neutral-700 focus:border-neutral-500 outline-none text-sm"
+            />
           </div>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="text-xs bg-neutral-900 border border-neutral-800 rounded-lg px-2 py-1.5"
-          >
-            <option value="created_at.desc">Newest</option>
-            <option value="created_at.asc">Oldest</option>
-            <option value="rate.desc">Rate ↓</option>
-            <option value="rate.asc">Rate ↑</option>
-            <option value="shipper.asc">Shipper A–Z</option>
-          </select>
-          <button
-            onClick={openAdd}
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-          >
-            <PlusCircle size={16} /> Add Load
-          </button>
         </div>
       </div>
 
-      {/* Search + Filters */}
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="relative md:w-80">
-          <Search size={16} className="absolute left-3 top-2.5 text-neutral-500" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search city, shipper, dispatcher..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-sm"
-          />
-        </div>
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
-          {FILTERS.map((f) => (
-            <Pill key={f} active={filter === f} onClick={() => setFilter(f)}>
-              {f.replace("_", "-")}
-            </Pill>
-          ))}
-        </div>
-      </div>
-
-      {/* List */}
       {loading ? (
-        <div className="flex items-center gap-2 text-neutral-400">
-          <Loader2 className="animate-spin" size={16} />
-          Loading…
+        <div className="flex items-center gap-2 text-neutral-300">
+          <Loader2 className="h-5 w-5 animate-spin" /> Loading…
         </div>
-      ) : list.length === 0 ? (
-        <div className="text-neutral-400 text-sm">No loads match this view.</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-neutral-400">No loads found.</div>
       ) : (
-        <div className="space-y-3">
-          {list.map((row) => (
+        <div className="grid gap-3">
+          {filtered.map((load) => (
             <div
-              key={row.id}
-              className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 shadow-sm hover:shadow-md transition"
+              key={load.id}
+              className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 md:p-5 shadow-sm"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium">
-                    {row.origin || "—"}{" "}
-                    <ArrowRight size={12} className="inline-block mx-1 opacity-60" />{" "}
-                    {row.destination || "—"}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm opacity-60">#{String(load.id).slice(0, 8)}</div>
+                    <StatusBadge status={load.status} />
                   </div>
-
-                  <div className="mt-1 text-xs text-neutral-400 flex flex-wrap gap-x-3 gap-y-1">
-                    <span className="inline-flex items-center gap-1">
-                      <DollarSign size={14} />
-                      {typeof row.rate === "number"
-                        ? new Intl.NumberFormat("en-US").format(row.rate)
-                        : "—"}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <CalendarDays size={14} />
-                      {new Date(row.created_at).toLocaleDateString()}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <UserRound size={14} />
-                      {row.dispatcher || "—"}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Edit3 size={14} />
-                      {row.shipper || "—"}
-                    </span>
+                  <div className="text-base md:text-lg font-medium">
+                    {load.origin} → {load.destination}
+                  </div>
+                  <div className="text-sm opacity-70">
+                    {load.shipper || "Unknown Shipper"} • Disp: {load.dispatcher || "—"} • $
+                    {Number(load.rate || 0).toLocaleString()}
                   </div>
                 </div>
-                <StatusBadge status={row.status} />
-              </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <IconButton
-                  title="Set In-Transit"
-                  onClick={() => updateStatus(row.id, "IN_TRANSIT")}
-                  disabled={busyId === row.id}
-                >
-                  <Truck size={14} />
-                  In-Transit
-                </IconButton>
-                <IconButton
-                  title="Mark Delivered"
-                  onClick={() => updateStatus(row.id, "DELIVERED")}
-                  disabled={busyId === row.id}
-                >
-                  <CheckCheck size={14} />
-                  Delivered
-                </IconButton>
-                <IconButton
-                  title="Report Problem"
-                  onClick={() => updateStatus(row.id, "PROBLEM")}
-                  disabled={busyId === row.id}
-                >
-                  <AlertTriangle size={14} />
-                  Problem
-                </IconButton>
-                <IconButton
-                  title="Edit"
-                  onClick={() => openEdit(row)}
-                  disabled={busyId === row.id}
-                >
-                  <Edit3 size={14} />
-                  Edit
-                </IconButton>
-                <IconButton
-                  title="Delete"
-                  onClick={() => removeRow(row.id)}
-                  disabled={busyId === row.id}
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </IconButton>
+                <div className="flex flex-col items-end gap-2">
+                  <AssignDriverDropdown
+                    load={load}
+                    onAssigned={() => fetchLoads()}
+                    onUnassigned={() => fetchLoads()}
+                  />
+                  <div className="flex items-center gap-2">
+                    {STATUSES.filter((s) => s !== load.status).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => handleStatusChange(load, s)}
+                        disabled={submittingId === load.id}
+                        className="px-2.5 py-1.5 rounded-lg border border-neutral-700 hover:border-neutral-500 transition text-xs"
+                      >
+                        {submittingId === load.id && s === "DELIVERED" ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Delivering…
+                          </span>
+                        ) : s === "DELIVERED" ? (
+                          <span className="inline-flex items-center gap-1">
+                            <CheckCheck className="h-3.5 w-3.5" /> {s}
+                          </span>
+                        ) : (
+                          s
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* Add/Edit Modal */}
-      <Modal
-        open={openForm}
-        onClose={() => {
-          if (!saving) {
-            setOpenForm(false);
-            setEditing(null);
-          }
-        }}
-        title={editing ? "Edit Load" : "Add Load"}
-        footer={
-          <div className="flex items-center justify-end gap-2">
-            <button
-              className="px-3 py-1.5 text-xs rounded-lg border border-neutral-800"
-              onClick={() => {
-                if (!saving) {
-                  setOpenForm(false);
-                  setEditing(null);
-                }
-              }}
-              disabled={saving}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submitForm}
-              disabled={saving}
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs"
-            >
-              {saving && <Loader2 className="animate-spin" size={14} />}
-              {editing ? "Save Changes" : "Create Load"}
-            </button>
-          </div>
-        }
-      >
-        <form onSubmit={submitForm} className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Shipper</label>
-            <input
-              value={form.shipper}
-              onChange={(e) => setForm((f) => ({ ...f, shipper: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Dispatcher</label>
-            <input
-              value={form.dispatcher}
-              onChange={(e) => setForm((f) => ({ ...f, dispatcher: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Origin</label>
-            <input
-              value={form.origin}
-              onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Destination</label>
-            <input
-              value={form.destination}
-              onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Rate (USD)</label>
-            <input
-              type="number"
-              step="1"
-              inputMode="numeric"
-              value={form.rate}
-              onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs text-neutral-400 mb-1">Status</label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm"
-            >
-              {STATUS_LIST.map((s) => (
-                <option key={s} value={s}>
-                  {s.replace("_", "-")}
-                </option>
-              ))}
-            </select>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
