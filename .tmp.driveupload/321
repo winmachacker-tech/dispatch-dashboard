@@ -1,0 +1,25 @@
+0000000000000000000000000000000000000000 b1c5442863ce3e6e261a275114e68798380dde8d Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761532727 -0700	commit (initial): Initial deploy
+b1c5442863ce3e6e261a275114e68798380dde8d b1c5442863ce3e6e261a275114e68798380dde8d Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761532727 -0700	Branch: renamed refs/heads/main to refs/heads/main
+b1c5442863ce3e6e261a275114e68798380dde8d b1c5442863ce3e6e261a275114e68798380dde8d Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761532795 -0700	Branch: renamed refs/heads/main to refs/heads/main
+b1c5442863ce3e6e261a275114e68798380dde8d 9772f8befcad99af969aac45f4206fb5c32979c2 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761534359 -0700	rebase (finish): refs/heads/main onto 5b181d15f1a36c20545c6534596bc80b386d84c7
+9772f8befcad99af969aac45f4206fb5c32979c2 045ca9c150016a65794205b2797fb90dce2848d4 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761535047 -0700	commit: Use .cjs for PostCSS/Tailwind under ESM; add Recharts dashboard
+045ca9c150016a65794205b2797fb90dce2848d4 a757dbbe0ea587b286af25fdcc392030bbc59226 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761588157 -0700	commit: Initial backup
+a757dbbe0ea587b286af25fdcc392030bbc59226 a757dbbe0ea587b286af25fdcc392030bbc59226 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761588285 -0700	Branch: renamed refs/heads/main to refs/heads/main
+a757dbbe0ea587b286af25fdcc392030bbc59226 fa465c377cfb76944eed7ce003a09e9d29ce8334 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761601856 -0700	commit: Backup YYYY-MM-DD
+fa465c377cfb76944eed7ce003a09e9d29ce8334 095b3ddb4bccfd559fbec57a732cd74054ab0362 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761607030 -0700	commit: Backup YYYY-MM-DD
+095b3ddb4bccfd559fbec57a732cd74054ab0362 076a8c8a789b3131b8f7f269f9fea22c73543f1b Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761616167 -0700	commit: Update before redeploy
+076a8c8a789b3131b8f7f269f9fea22c73543f1b 28ce14e9f7fc4e315f3cb654af0de523a127d742 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761617584 -0700	commit: Fix import case for Vercel
+28ce14e9f7fc4e315f3cb654af0de523a127d742 08c2956310ff9cce72a6d28e030272eb9f29a2d8 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761617980 -0700	commit: Rename sidebar.jsx -> Sidebar.jsx
+08c2956310ff9cce72a6d28e030272eb9f29a2d8 e443ac817c5464fae5a6e4beab576150c9eeac82 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761618130 -0700	commit: Update App.jsx import and .gitignore cleanup
+e443ac817c5464fae5a6e4beab576150c9eeac82 1dfc4b2b84e5a42638c1565c22e2553e29f6dcba Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761618481 -0700	commit: Force rebuild after case cleanup
+1dfc4b2b84e5a42638c1565c22e2553e29f6dcba 09fc04fb844f204d252f384b325407356b1eae2c Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761618836 -0700	commit: Normalize App.jsx and fix import casing
+09fc04fb844f204d252f384b325407356b1eae2c f87bf017e8b912589b2d3a85c046e48ef3fe7bb6 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761619260 -0700	commit: Make layout responsive for mobile
+f87bf017e8b912589b2d3a85c046e48ef3fe7bb6 ba507eada351a2c02f576e6cddc6a0d600d6185e Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761619466 -0700	commit: deploy: 2025-10-27 19:44
+ba507eada351a2c02f576e6cddc6a0d600d6185e 4834f4227757d99b83d73ec9afc123f9b7bf6853 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761619729 -0700	commit: Make sidebar mobile responsive
+4834f4227757d99b83d73ec9afc123f9b7bf6853 1ddc8c50782ec224411558639683dfdbdca435d1 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761661782 -0700	commit: Update before redeploy
+1ddc8c50782ec224411558639683dfdbdca435d1 f3fb3d13c7cea7e605a912c030a8dbaf411fe260 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761665171 -0700	commit: Add Delivered Loads page and sidebar link
+f3fb3d13c7cea7e605a912c030a8dbaf411fe260 e7691cc9dd0821c036265ec2e371cbade6243750 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761666067 -0700	commit: Fix case-sensitive import and ensure App.jsx filename is tracked
+e7691cc9dd0821c036265ec2e371cbade6243750 5ebb6d40456815694ca78ad308497c5251eb7b6c Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761666277 -0700	commit: Fix case-sensitive import: use ./App.jsx in main.jsx; enforce App.jsx filename
+5ebb6d40456815694ca78ad308497c5251eb7b6c f396a5b915c4547a6998352ced204617411d2353 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761675741 -0700	commit: Clean reinstall + verified prod build
+f396a5b915c4547a6998352ced204617411d2353 976267ee66e20d521d2c80ab0a0999138f6ab871 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761681642 -0700	commit: Prod: Dashboard Phase 1 + trucks select fix + recharts
+976267ee66e20d521d2c80ab0a0999138f6ab871 5f126537d650cc40b078dd15430b6d013a5b1676 Mark Tishkun <winmachacker-tech@users.noreply.github.com> 1761701449 -0700	commit: Release: stable build (vite ok), SPA rewrites, loads/status helpers

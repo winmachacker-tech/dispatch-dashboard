@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- index.html -->
+<script>
+  (() => {
+    try {
+      const saved = localStorage.getItem('theme') || 'system';
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = saved === 'dark' || (saved === 'system' && prefersDark);
+      document.documentElement.classList.toggle('dark', isDark);
+    } catch {}
+  })();
+</script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dispatch Dashboard</title>
+    <script type="module" crossorigin src="/assets/index-CtieMWiQ.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DzL5XH98.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
