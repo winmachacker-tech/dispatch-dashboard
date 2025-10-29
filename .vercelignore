@@ -1,4 +1,6 @@
 ﻿.tmp.driveupload/
 .git/
 .vscode/
+node_modules/
 **/*.map
+dist/

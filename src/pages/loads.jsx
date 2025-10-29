@@ -17,7 +17,7 @@ import {
 const PAGE_SIZE = 25;
 const STATUS_OPTIONS = ["ALL", "AVAILABLE", "IN_TRANSIT", "DELIVERED"];
 
-/* ───────────────────────── Toast (no lib) ───────────────────────── */
+/* ── Toast (no lib) ── */
 function toast(msg) {
   const el = document.createElement("div");
   el.className =
@@ -27,7 +27,6 @@ function toast(msg) {
   setTimeout(() => el.remove(), 1800);
 }
 
-/* ───────────────────────── Page ───────────────────────── */
 export default function LoadsPage() {
   // Data / UI
   const [rows, setRows] = useState([]);
@@ -51,6 +50,8 @@ export default function LoadsPage() {
     destination: "",
     dispatcher: "",
     rate: "",
+    pickup_date: "",
+    delivery_date: "",
   });
   const [saveError, setSaveError] = useState("");
 
@@ -94,7 +95,7 @@ export default function LoadsPage() {
       setRows(data || []);
       setHasMore(((count ?? 0) - (to + 1)) > 0);
       setPage(pageIndex);
-      setSelectedIds(new Set()); // clear selection on new page
+      setSelectedIds(new Set());
     } catch (err) {
       console.error("[Loads] fetch error:", err);
     } finally {
@@ -118,7 +119,6 @@ export default function LoadsPage() {
         (payload) => {
           setRows((prev) => {
             if (payload.eventType === "INSERT") {
-              // only add if it matches current filters roughly
               const r = payload.new;
               if (
                 (status === "ALL" || r.status === status) &&
@@ -170,6 +170,8 @@ export default function LoadsPage() {
       destination: "",
       dispatcher: "",
       rate: "",
+      pickup_date: "",
+      delivery_date: "",
     });
     setSaveError("");
     setShowAdd(true);
@@ -178,16 +180,21 @@ export default function LoadsPage() {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: value }));
   };
+
   const canSave =
     form.shipper.trim() &&
     form.origin.trim() &&
     form.destination.trim() &&
-    form.rate.toString().trim();
+    form.rate.toString().trim() &&
+    form.pickup_date.trim() &&
+    form.delivery_date.trim();
 
   const handleSave = async () => {
     setSaveError("");
     if (!canSave) {
-      setSaveError("Please fill in shipper, origin, destination, and rate.");
+      setSaveError(
+        "Please fill in shipper, origin, destination, rate, pickup date, and delivery date."
+      );
       return;
     }
     setSaving(true);
@@ -199,6 +206,10 @@ export default function LoadsPage() {
         dispatcher: form.dispatcher.trim() || null,
         rate: form.rate ? Number(form.rate) : null,
         status: "AVAILABLE",
+        // If your columns are DATE, 'YYYY-MM-DD' is perfect.
+        // If TIMESTAMP, backend will cast or you can append 'T00:00:00Z'.
+        pickup_date: form.pickup_date || null,
+        delivery_date: form.delivery_date || null,
       };
       const { data, error } = await supabase
         .from("loads")
@@ -366,7 +377,7 @@ export default function LoadsPage() {
 
         {/* Desktop Table */}
         <div className="hidden md:block overflow-x-auto rounded-xl border border-neutral-800/60 bg-neutral-900/30">
-          <table className="w-full min-w-[1100px] table-fixed">
+          <table className="w-full min-w-[1250px] table-fixed">
             <thead className="sticky top-0 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60 z-10">
               <tr className="text-left text-sm">
                 <th className="w-[46px] px-3 py-3">
@@ -383,8 +394,10 @@ export default function LoadsPage() {
                   </button>
                 </th>
                 <th className="w-[140px] px-4 py-3">Shipper</th>
-                <th className="w-[180px] px-4 py-3">Origin</th>
-                <th className="w-[180px] px-4 py-3">Destination</th>
+                <th className="w-[170px] px-4 py-3">Origin</th>
+                <th className="w-[170px] px-4 py-3">Destination</th>
+                <th className="w-[150px] px-4 py-3">Pickup</th>
+                <th className="w-[150px] px-4 py-3">Delivery</th>
                 <th className="w-[160px] px-4 py-3">Dispatcher</th>
                 <th className="w-[110px] px-4 py-3">Rate</th>
                 <th className="w-[130px] px-4 py-3">Status</th>
@@ -396,7 +409,7 @@ export default function LoadsPage() {
             <tbody className="text-sm [&>tr:nth-child(even)]:bg-neutral-900/20">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center">
+                  <td colSpan={11} className="px-4 py-10 text-center">
                     <div className="inline-flex items-center gap-2 text-neutral-400">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading…
@@ -405,7 +418,7 @@ export default function LoadsPage() {
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center">
+                  <td colSpan={11} className="px-4 py-10 text-center">
                     <div className="inline-flex items-center gap-2 text-neutral-400">
                       <AlertTriangle className="h-4 w-4" />
                       No loads found.
@@ -443,6 +456,16 @@ export default function LoadsPage() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
                         {row.destination || "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.pickup_date
+                          ? new Date(row.pickup_date).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.delivery_date
+                          ? new Date(row.delivery_date).toLocaleDateString()
+                          : "-"}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
                         <EditableCell
@@ -601,6 +624,20 @@ export default function LoadsPage() {
                 value={form.rate}
                 onChange={handleField}
               />
+              <Field
+                label="Pickup Date *"
+                name="pickup_date"
+                type="date"
+                value={form.pickup_date}
+                onChange={handleField}
+              />
+              <Field
+                label="Delivery Date *"
+                name="delivery_date"
+                type="date"
+                value={form.delivery_date}
+                onChange={handleField}
+              />
             </div>
 
             {saveError ? (
@@ -631,7 +668,7 @@ export default function LoadsPage() {
   );
 }
 
-/* ───────────────────────── UI helpers ───────────────────────── */
+/* ── UI helpers ── */
 
 function Field({ label, name, value, onChange, type = "text", placeholder }) {
   return (
@@ -710,13 +747,10 @@ function EditableCell({ value, onSave, type = "text", placeholder = "" }) {
 
 function Badge({ color = "neutral", children }) {
   const map = {
-    emerald:
-      "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    emerald: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
     sky: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-    purple:
-      "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    neutral:
-      "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
+    purple: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+    neutral: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
   };
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${map[color]}`}>
@@ -751,6 +785,22 @@ function LoadCard({ row, selected, onToggle, onUpdate }) {
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <div className="text-neutral-400 text-xs mb-1">Pickup</div>
+          <div>
+            {row.pickup_date
+              ? new Date(row.pickup_date).toLocaleDateString()
+              : "-"}
+          </div>
+        </div>
+        <div>
+          <div className="text-neutral-400 text-xs mb-1">Delivery</div>
+          <div>
+            {row.delivery_date
+              ? new Date(row.delivery_date).toLocaleDateString()
+              : "-"}
+          </div>
+        </div>
         <div>
           <div className="text-neutral-400 text-xs mb-1">Dispatcher</div>
           <EditableCell
