@@ -2,20 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 🔹 Smooth theme fade + browser color-scheme hint */
-:root {
-  color-scheme: light dark;
-}
+/* ---------- Base resets + app scaffolding ---------- */
+:root { color-scheme: light dark; }
 
-html {
-  transition: background-color 0.25s ease, color 0.25s ease;
-}
-
-/* 🔹 Optional styling baseline */
 html, body, #root {
   height: 100%;
 }
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-[hsl(var(--surface))] text-[hsl(var(--surface-foreground))] antialiased;
+  font-feature-settings: "cv11","cv10","cv09","cv08","cv07","cv06","cv05","cv04","cv03","cv02","cv01";
 }
+
+/* Smooth scroll + nice scrollbars for dashboards */
+html { scroll-behavior: smooth; }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 140, .5) transparent;
+}
+*::-webkit-scrollbar { height: 10px; width: 10px; }
+*::-webkit-scrollbar-thumb { border-radius: 10px; background: rgba(120,120,140,.45); }
+
+/* ---------- Component layer (reusable classes) ---------- */
+@layer components {
+  .card {
+    @apply bg-[hsl(var(--card))] text-[hsl(var(--card-foreground))] rounded-xl2 border border-[hsl(var(--border))] shadow-soft;
+  }
+  .tile {
+    @apply card p-5 transition-all duration-150 hover:shadow-lg;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium transition;
+  }
+  .btn-primary {
+    @apply btn bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 focus:outline-none focus:shadow-ring;
+  }
+  .btn-secondary {
+    @apply btn bg-[hsl(var(--secondary))] text-[hsl(var(--secondary-foreground))] hover:opacity-90;
+  }
+  .btn-ghost {
+    @apply btn text-[hsl(var(--surface-foreground))] hover:bg-[hsl(var(--accent))];
+  }
+  .input {
+    @apply h-10 w-full rounded-lg border border-[hsl(var(--input))] bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))];
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border border-[hsl(var(--border))];
+  }
+  .kpi {
+    @apply tile flex flex-col gap-1;
+  }
+}
+
+/* ---------- Utilities overrides ---------- */
+@layer utilities {
+  .text-muted { @apply text-[hsl(var(--muted-foreground))]; }
+  .ring-brand { box-shadow: 0 0 0 3px hsl(var(--ring)/.35); }
+}
+
+/* Links */
+a { @apply text-brand-700 dark:text-brand-300 hover:opacity-90 no-underline; }
