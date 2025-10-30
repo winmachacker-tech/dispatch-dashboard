@@ -117,7 +117,7 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
           <Building2 className="size-5 text-white" />
           {!collapsed && (
             <div>
-              <div className="text-sm font-semibold leading-tight">USKO | Ops</div>
+              <div className="text-sm font-semibold leading-tight">Overwatch | Ops</div>
               <div className="text-xs text-neutral-400 leading-tight">Enterprise TMS</div>
             </div>
           )}
@@ -148,7 +148,7 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
 
         <Group icon={PackageSearch} label="Operations" slug="ops" collapsed={collapsed}>
           <Item to="/loads" icon={ClipboardList} label="Loads" badge={counts.available} collapsed={collapsed} />
-          <Item to="/intransit" icon={RouteIcon} label="In-Transit" badge={counts.inTransit} collapsed={collapsed} />
+          <Item to="/in-transit" icon={RouteIcon} label="In-Transit" badge={counts.inTransit} collapsed={collapsed} />
           <Item to="/delivered" icon={Truck} label="Delivered" collapsed={collapsed} />
           {/* FIXED PATH HERE */}
           <Item to="/problem-board" icon={Bell} label="Problem Board" badge={counts.problem} collapsed={collapsed} />

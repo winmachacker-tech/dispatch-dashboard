@@ -1,31 +1,80 @@
-﻿import { Bell, Search, User } from "lucide-react";
+﻿// src/components/Topbar.jsx
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { Plus } from "lucide-react";
+import AddLoadModal from "./AddLoadModal"; // change to ../AddLoadModal if Topbar is in a subfolder
 
 export default function Topbar() {
+  const loc = useLocation();
+  const [showAdd, setShowAdd] = useState(false);
+
+  // Match any of these pages (and their nested routes)
+  const showOnPages = useMemo(
+    () => ["/loads", "/in-transit", "/delivered", "/problem"],
+    []
+  );
+
+  // True if current path contains any of our target segments
+  const canAddLoad = useMemo(() => {
+    const p = loc.pathname.toLowerCase();
+    return showOnPages.some((seg) => p.includes(seg.replace("/", "")));
+  }, [loc.pathname, showOnPages]);
+
+  // Keyboard shortcut: "N" opens Add Load when allowed
+  useEffect(() => {
+    function onKey(e) {
+      if (!canAddLoad) return;
+      // Ignore if typing in an input/textarea/contenteditable
+      const tag = (e.target?.tagName || "").toLowerCase();
+      const editable =
+        tag === "input" ||
+        tag === "textarea" ||
+        (e.target?.isContentEditable ?? false);
+      if (editable) return;
+
+      if (e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setShowAdd(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canAddLoad]);
+
   return (
-    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-brand-200">
-      <div className="container-app px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
-        <div className="hidden md:flex items-center gap-2 text-brand-700">
-          <div className="font-semibold">USKO | Ops</div>
-          <div className="text-brand-400">•</div>
-          <div className="text-sm">Enterprise TMS</div>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          <div className="relative">
-            <input
-              className="h-9 w-64 rounded-lg border border-brand-200 px-3 text-sm outline-none focus:ring-2 focus:ring-brand-300"
-              placeholder="Quick search (loads, drivers, trucks)…"
-            />
-            <Search className="absolute right-2 top-2.5 h-4 w-4 text-brand-400" />
-          </div>
-          <button className="h-9 w-9 rounded-full bg-brand-100 hover:bg-brand-200 flex items-center justify-center">
-            <Bell className="h-5 w-5" />
-          </button>
-          <div className="h-9 px-3 rounded-full bg-brand-900 text-white flex items-center gap-2">
-            <User className="h-4 w-4" />
-            <span className="text-sm">Mark T.</span>
-          </div>
-        </div>
+    <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-neutral-800">
+      {/* Left side: keep your breadcrumbs / titles / search input here */}
+      <div className="flex-1 min-w-0">
+        {/* Example breadcrumb container (optional): */}
+        {/* <div className="text-sm text-gray-500 truncate">Overwatch | Ops • Enterprise TMS</div> */}
       </div>
-    </header>
+
+      {/* Right side: actions */}
+      <div className="flex items-center gap-2">
+        {/* Place your existing bell/profile/etc. buttons here */}
+
+        {canAddLoad && (
+          <>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-black text-white px-3 py-2 hover:bg-black/90"
+              title="Add a new load (N)"
+              data-testid="add-load-btn"
+            >
+              <Plus className="h-4 w-4" />
+              Add Load
+            </button>
+
+            {/* Modal lives here so it can mount on any supported page */}
+            <AddLoadModal
+              open={showAdd}
+              onClose={() => setShowAdd(false)}
+              // After creation, refresh the page data; lightweight + reliable
+              onCreated={() => window.location.reload()}
+            />
+          </>
+        )}
+      </div>
+    </div>
   );
 }

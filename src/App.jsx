@@ -1,4 +1,5 @@
-﻿import { Routes, Route, Navigate } from "react-router-dom";
+﻿// src/App.jsx
+import { Routes, Route, Navigate } from "react-router-dom";
 import MainLayout from "./components/MainLayout.jsx";
 
 // PAGES (filenames + casing must match exactly)
@@ -26,21 +27,27 @@ function NotFound() {
 export default function App() {
   return (
     <Routes>
-      {/* Redirect legacy root */}
+      {/* Legacy root -> dashboard */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-      {/* Single layout for all app pages */}
+      {/* Main app layout */}
       <Route path="/" element={<MainLayout />}>
-        <Route index element={<DashboardPage />} />
+        {/* Primary routes */}
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="loads" element={<LoadsPage />} />
         <Route path="available" element={<AvailableLoadsPage />} />
         <Route path="in-transit" element={<InTransitPage />} />
         <Route path="delivered" element={<DeliveredPage />} />
         <Route path="drivers" element={<DriversPage />} />
-        <Route path="problems" element={<ProblemBoard />} />
+        <Route path="problem-board" element={<ProblemBoard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="trucks" element={<TrucksPage />} />
+
+        {/* Friendly redirects for legacy/mistyped paths */}
+        <Route path="intransit" element={<Navigate to="/in-transit" replace />} />
+        <Route path="problems" element={<Navigate to="/problem-board" replace />} />
+
+        {/* In-layout 404 */}
         <Route path="*" element={<NotFound />} />
       </Route>
 

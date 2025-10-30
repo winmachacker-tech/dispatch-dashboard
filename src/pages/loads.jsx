@@ -1,857 +1,628 @@
 ﻿// src/pages/loads.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../lib/supabase.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../lib/supabase";
 import {
-  PlusCircle,
-  Search,
   Loader2,
-  CheckCheck,
-  Truck,
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
+  Search,
+  RefreshCw,
+  Filter,
+  UploadCloud,
   CheckSquare,
-  Square,
+  MinusSquare,
+  PencilLine,
+  Check,
+  X,
 } from "lucide-react";
 
-const PAGE_SIZE = 25;
-const STATUS_OPTIONS = ["ALL", "AVAILABLE", "IN_TRANSIT", "DELIVERED"];
+/* ---------------------------------- UI ---------------------------------- */
 
-/* ── Toast (no lib) ── */
-function toast(msg) {
-  const el = document.createElement("div");
-  el.className =
-    "fixed bottom-4 right-4 z-50 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm";
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1800);
+function cx(...a) {
+  return a.filter(Boolean).join(" ");
 }
 
-export default function LoadsPage() {
-  // Data / UI
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-
-  // Filters
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("ALL");
-
-  // Selection
-  const [selectedIds, setSelectedIds] = useState(new Set());
-
-  // Add modal
-  const [showAdd, setShowAdd] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    shipper: "",
-    origin: "",
-    destination: "",
-    dispatcher: "",
-    rate: "",
-    pickup_date: "",
-    delivery_date: "",
-  });
-  const [saveError, setSaveError] = useState("");
-
-  // Debounce search
-  const debounceRef = useRef(null);
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetchRows({ pageIndex: 0 });
-    }, 300);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
-  // Fetch rows
-  async function fetchRows({ pageIndex = 0 } = {}) {
-    setLoading(true);
-    try {
-      let query = supabase.from("loads").select("*", { count: "exact" });
-
-      if (status !== "ALL") query = query.eq("status", status);
-      if (q.trim()) {
-        query = query.or(
-          [
-            `shipper.ilike.%${q}%`,
-            `origin.ilike.%${q}%`,
-            `destination.ilike.%${q}%`,
-            `dispatcher.ilike.%${q}%`,
-          ].join(",")
-        );
-      }
-
-      query = query.order("created_at", { ascending: false });
-
-      const from = pageIndex * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      query = query.range(from, to);
-
-      const { data, count, error } = await query;
-      if (error) throw error;
-
-      setRows(data || []);
-      setHasMore(((count ?? 0) - (to + 1)) > 0);
-      setPage(pageIndex);
-      setSelectedIds(new Set());
-    } catch (err) {
-      console.error("[Loads] fetch error:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Initial + status change
-  useEffect(() => {
-    fetchRows({ pageIndex: 0 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
-
-  // Supabase realtime
-  useEffect(() => {
-    const ch = supabase
-      .channel("loads-ch")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "loads" },
-        (payload) => {
-          setRows((prev) => {
-            if (payload.eventType === "INSERT") {
-              const r = payload.new;
-              if (
-                (status === "ALL" || r.status === status) &&
-                (!q ||
-                  [r.shipper, r.origin, r.destination, r.dispatcher]
-                    .filter(Boolean)
-                    .some((t) =>
-                      String(t).toLowerCase().includes(q.toLowerCase())
-                    ))
-              ) {
-                return [r, ...prev];
-              }
-              return prev;
-            }
-            if (payload.eventType === "UPDATE") {
-              return prev.map((r) =>
-                r.id === payload.new.id ? payload.new : r
-              );
-            }
-            if (payload.eventType === "DELETE") {
-              return prev.filter((r) => r.id !== payload.old.id);
-            }
-            return prev;
-          });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, [q, status]);
-
-  // Keyboard: A opens modal
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key.toLowerCase() === "a") setShowAdd(true);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const statusChips = useMemo(() => STATUS_OPTIONS, []);
-
-  // Add modal handlers
-  const handleOpenAdd = () => {
-    setForm({
-      shipper: "",
-      origin: "",
-      destination: "",
-      dispatcher: "",
-      rate: "",
-      pickup_date: "",
-      delivery_date: "",
-    });
-    setSaveError("");
-    setShowAdd(true);
-  };
-  const handleField = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
-
-  const canSave =
-    form.shipper.trim() &&
-    form.origin.trim() &&
-    form.destination.trim() &&
-    form.rate.toString().trim() &&
-    form.pickup_date.trim() &&
-    form.delivery_date.trim();
-
-  const handleSave = async () => {
-    setSaveError("");
-    if (!canSave) {
-      setSaveError(
-        "Please fill in shipper, origin, destination, rate, pickup date, and delivery date."
-      );
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        shipper: form.shipper.trim(),
-        origin: form.origin.trim(),
-        destination: form.destination.trim(),
-        dispatcher: form.dispatcher.trim() || null,
-        rate: form.rate ? Number(form.rate) : null,
-        status: "AVAILABLE",
-        // If your columns are DATE, 'YYYY-MM-DD' is perfect.
-        // If TIMESTAMP, backend will cast or you can append 'T00:00:00Z'.
-        pickup_date: form.pickup_date || null,
-        delivery_date: form.delivery_date || null,
-      };
-      const { data, error } = await supabase
-        .from("loads")
-        .insert([payload])
-        .select()
-        .single();
-      if (error) throw error;
-
-      setRows((prev) => (prev?.length ? [data, ...prev] : [data]));
-      setShowAdd(false);
-      toast("Load saved");
-    } catch (err) {
-      console.error("[Loads] save error:", err);
-      setSaveError(err?.message || "Failed to save. Check console/logs.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Selection
-  const allOnPageSelected =
-    rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
-  const toggleSelectAll = () => {
-    if (allOnPageSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(rows.map((r) => r.id)));
-    }
-  };
-  const toggleSelectOne = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // Updates
-  async function updateField(id, patch) {
-    try {
-      const { data, error } = await supabase
-        .from("loads")
-        .update(patch)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      setRows((prev) => prev.map((r) => (r.id === id ? data : r)));
-      toast("Updated");
-    } catch (e) {
-      console.error("Update field error", e);
-      toast("Update failed");
-    }
-  }
-
-  // Bulk actions
-  async function bulkUpdateStatus(newStatus) {
-    if (selectedIds.size === 0) return;
-    try {
-      const ids = Array.from(selectedIds);
-      const { data, error } = await supabase
-        .from("loads")
-        .update({ status: newStatus })
-        .in("id", ids)
-        .select();
-      if (error) throw error;
-      const map = new Map(data.map((d) => [d.id, d]));
-      setRows((prev) => prev.map((r) => map.get(r.id) || r));
-      setSelectedIds(new Set());
-      toast(`Marked ${data.length} as ${newStatus.replace("_", " ")}`);
-    } catch (e) {
-      console.error("Bulk update error", e);
-      toast("Bulk update failed");
-    }
-  }
-
-  return (
-    <div className="min-h-screen w-full overflow-x-hidden">
-      <div className="mx-auto w-full max-w-[1400px] px-4 lg:px-6">
-        {/* Header */}
-        <div className="flex items-center justify-between py-4">
-          <div>
-            <h1 className="text-xl font-semibold">Loads</h1>
-            <p className="text-sm text-neutral-400">
-              Manage active and historical loads
-            </p>
-          </div>
-          <button
-            onClick={handleOpenAdd}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-2 hover:bg-neutral-900"
-          >
-            <PlusCircle className="h-5 w-5" />
-            Add Load
-          </button>
-        </div>
-
-        {/* Status legend */}
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-          <Badge color="emerald">Available</Badge>
-          <Badge color="sky">In Transit</Badge>
-          <Badge color="purple">Delivered</Badge>
-        </div>
-
-        {/* Filters / bulk actions */}
-        <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search shipper, origin, destination, dispatcher…"
-              className="h-10 w-[260px] rounded-lg pl-9 pr-3 bg-neutral-900/40 border border-neutral-800 max-w-full"
-            />
-          </div>
-
-          <div className="flex items-center gap-1">
-            {statusChips.map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                className={`h-9 px-3 rounded-full border ${
-                  status === s
-                    ? "bg-neutral-100 text-neutral-900 border-neutral-200"
-                    : "bg-neutral-900/40 text-neutral-200 border-neutral-800 hover:bg-neutral-900"
-                }`}
-              >
-                {s.replace("_", " ")}
-              </button>
-            ))}
-          </div>
-
-          {/* Bulk actions */}
-          <div className="ml-auto flex items-center gap-2 shrink-0">
-            <button
-              disabled={selectedIds.size === 0}
-              onClick={() => bulkUpdateStatus("IN_TRANSIT")}
-              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 disabled:opacity-50"
-              title="Mark selected as In Transit"
-            >
-              <div className="inline-flex items-center gap-2">
-                <Truck className="h-4 w-4" />
-                In Transit
-              </div>
-            </button>
-            <button
-              disabled={selectedIds.size === 0}
-              onClick={() => bulkUpdateStatus("DELIVERED")}
-              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 disabled:opacity-50"
-              title="Mark selected as Delivered"
-            >
-              <div className="inline-flex items-center gap-2">
-                <CheckCheck className="h-4 w-4" />
-                Delivered
-              </div>
-            </button>
-            <button
-              onClick={() => fetchRows({ pageIndex: 0 })}
-              className="h-9 rounded-lg px-3 border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900"
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        {/* Desktop Table */}
-        <div className="hidden md:block overflow-x-auto rounded-xl border border-neutral-800/60 bg-neutral-900/30">
-          <table className="w-full min-w-[1250px] table-fixed">
-            <thead className="sticky top-0 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60 z-10">
-              <tr className="text-left text-sm">
-                <th className="w-[46px] px-3 py-3">
-                  <button
-                    onClick={toggleSelectAll}
-                    className="inline-flex items-center justify-center"
-                    title={allOnPageSelected ? "Unselect all" : "Select all"}
-                  >
-                    {allOnPageSelected ? (
-                      <CheckSquare className="h-4 w-4" />
-                    ) : (
-                      <Square className="h-4 w-4" />
-                    )}
-                  </button>
-                </th>
-                <th className="w-[140px] px-4 py-3">Shipper</th>
-                <th className="w-[170px] px-4 py-3">Origin</th>
-                <th className="w-[170px] px-4 py-3">Destination</th>
-                <th className="w-[150px] px-4 py-3">Pickup</th>
-                <th className="w-[150px] px-4 py-3">Delivery</th>
-                <th className="w-[160px] px-4 py-3">Dispatcher</th>
-                <th className="w-[110px] px-4 py-3">Rate</th>
-                <th className="w-[130px] px-4 py-3">Status</th>
-                <th className="w-[180px] px-4 py-3">Created</th>
-                <th className="w-[140px] px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody className="text-sm [&>tr:nth-child(even)]:bg-neutral-900/20">
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center">
-                    <div className="inline-flex items-center gap-2 text-neutral-400">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading…
-                    </div>
-                  </td>
-                </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center">
-                    <div className="inline-flex items-center gap-2 text-neutral-400">
-                      <AlertTriangle className="h-4 w-4" />
-                      No loads found.
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => {
-                  const selected = selectedIds.has(row.id);
-                  return (
-                    <tr
-                      key={row.id}
-                      className={`group border-t border-neutral-800/60 hover:bg-neutral-900/30 ${
-                        selected ? "bg-neutral-900/40" : ""
-                      }`}
-                    >
-                      <td className="px-3 py-3">
-                        <button
-                          onClick={() => toggleSelectOne(row.id)}
-                          className="inline-flex items-center justify-center"
-                          title={selected ? "Unselect" : "Select"}
-                        >
-                          {selected ? (
-                            <CheckSquare className="h-4 w-4" />
-                          ) : (
-                            <Square className="h-4 w-4" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
-                        {row.shipper || "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
-                        {row.origin || "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
-                        {row.destination || "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.pickup_date
-                          ? new Date(row.pickup_date).toLocaleDateString()
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.delivery_date
-                          ? new Date(row.delivery_date).toLocaleDateString()
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
-                        <EditableCell
-                          value={row.dispatcher}
-                          placeholder="-"
-                          onSave={(val) =>
-                            updateField(row.id, {
-                              dispatcher: val.trim() || null,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <EditableCell
-                          value={row.rate}
-                          type="number"
-                          placeholder="-"
-                          onSave={(val) =>
-                            updateField(row.id, {
-                              rate:
-                                val === "" || val === null
-                                  ? null
-                                  : Number(val),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={row.status} />
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.created_at
-                          ? new Date(row.created_at).toLocaleString()
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                          <button
-                            title="Mark In Transit"
-                            className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900"
-                            onClick={() =>
-                              updateField(row.id, { status: "IN_TRANSIT" })
-                            }
-                          >
-                            <Truck className="h-4 w-4" />
-                          </button>
-                          <button
-                            title="Mark Delivered"
-                            className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900"
-                            onClick={() =>
-                              updateField(row.id, { status: "DELIVERED" })
-                            }
-                          >
-                            <CheckCheck className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile Card View */}
-        <div className="md:hidden grid gap-3">
-          {loading ? (
-            <div className="py-10 text-center text-neutral-400">
-              <Loader2 className="h-4 w-4 inline-block animate-spin mr-2" />
-              Loading…
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-neutral-400">
-              <AlertTriangle className="h-4 w-4 inline-block mr-2" />
-              No loads found.
-            </div>
-          ) : (
-            rows.map((r) => (
-              <LoadCard
-                key={r.id}
-                row={r}
-                selected={selectedIds.has(r.id)}
-                onToggle={() => toggleSelectOne(r.id)}
-                onUpdate={updateField}
-              />
-            ))
-          )}
-        </div>
-
-        {/* Pagination */}
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="text-sm text-neutral-400">
-            Page {page + 1}
-            {loading ? "" : ` • ${rows.length} rows`}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              disabled={page === 0 || loading}
-              onClick={() => fetchRows({ pageIndex: Math.max(0, page - 1) })}
-              className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 disabled:opacity-50"
-            >
-              <ChevronLeft className="h-4 w-4" /> Prev
-            </button>
-            <button
-              disabled={!hasMore || loading}
-              onClick={() => fetchRows({ pageIndex: page + 1 })}
-              className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 disabled:opacity-50"
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Add Load Modal */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold">Add Load</h2>
-              <p className="text-sm text-neutral-400">
-                Minimal details required to save. You can enrich later.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field
-                label="Shipper *"
-                name="shipper"
-                value={form.shipper}
-                onChange={handleField}
-              />
-              <Field
-                label="Dispatcher"
-                name="dispatcher"
-                value={form.dispatcher}
-                onChange={handleField}
-              />
-              <Field
-                label="Origin *"
-                name="origin"
-                value={form.origin}
-                onChange={handleField}
-              />
-              <Field
-                label="Destination *"
-                name="destination"
-                value={form.destination}
-                onChange={handleField}
-              />
-              <Field
-                label="Rate (USD) *"
-                name="rate"
-                type="number"
-                value={form.rate}
-                onChange={handleField}
-              />
-              <Field
-                label="Pickup Date *"
-                name="pickup_date"
-                type="date"
-                value={form.pickup_date}
-                onChange={handleField}
-              />
-              <Field
-                label="Delivery Date *"
-                name="delivery_date"
-                type="date"
-                value={form.delivery_date}
-                onChange={handleField}
-              />
-            </div>
-
-            {saveError ? (
-              <div className="mt-3 text-sm text-red-400">{saveError}</div>
-            ) : null}
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowAdd(false)}
-                className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-2 hover:bg-neutral-900"
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={!canSave || saving}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600/10 px-4 py-2 text-emerald-300 hover:bg-emerald-600/20 disabled:opacity-50"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save Load
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── UI helpers ── */
-
-function Field({ label, name, value, onChange, type = "text", placeholder }) {
-  return (
-    <label className="text-sm">
-      <div className="mb-1 text-neutral-300">{label}</div>
-      <input
-        name={name}
-        value={value}
-        onChange={onChange}
-        type={type}
-        placeholder={placeholder}
-        className="w-full h-10 rounded-lg px-3 bg-neutral-900/40 border border-neutral-800"
-      />
-    </label>
-  );
-}
-
-function StatusBadge({ status }) {
-  const styles = {
-    AVAILABLE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    IN_TRANSIT: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-    DELIVERED: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    DEFAULT: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
-  };
-  const cls = styles[status] || styles.DEFAULT;
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>
-      {status || "UNKNOWN"}
-    </span>
-  );
-}
-
-function EditableCell({ value, onSave, type = "text", placeholder = "" }) {
-  const [v, setV] = useState(value ?? "");
-  const [editing, setEditing] = useState(false);
-
-  useEffect(() => setV(value ?? ""), [value]);
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type={type}
-        value={v ?? ""}
-        placeholder={placeholder}
-        onChange={(e) => setV(e.target.value)}
-        onBlur={() => {
-          setEditing(false);
-          onSave(v);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            setEditing(false);
-            onSave(v);
-          }
-          if (e.key === "Escape") {
-            setEditing(false);
-            setV(value ?? "");
-          }
-        }}
-        className="h-8 w-full rounded border border-neutral-700 bg-neutral-900 px-2"
-      />
-    );
-  }
-
-  return (
-    <button
-      onClick={() => setEditing(true)}
-      className="text-left w-full truncate hover:underline"
-      title="Click to edit"
-    >
-      {value ?? placeholder ?? "-"}
-    </button>
-  );
-}
-
-function Badge({ color = "neutral", children }) {
+function Badge({ children, intent = "default", className = "" }) {
   const map = {
-    emerald: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    sky: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-    purple: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    neutral: "bg-neutral-500/15 text-neutral-300 border-neutral-500/30",
+    default:
+      "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 border border-zinc-200/60 dark:border-zinc-700/60",
+    blue: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
+    amber:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200",
+    green:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200",
+    red: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200",
+    gray:
+      "bg-zinc-100 text-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-200 border border-zinc-200/60 dark:border-zinc-700/60",
   };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 ${map[color]}`}>
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+        map[intent] || map.default,
+        className
+      )}
+    >
       {children}
     </span>
   );
 }
 
-function LoadCard({ row, selected, onToggle, onUpdate }) {
+function Button({
+  children,
+  variant = "default",
+  size = "md",
+  className = "",
+  ...props
+}) {
+  const v = {
+    default:
+      "bg-zinc-900 text-white hover:opacity-95 dark:bg-zinc-700 dark:text-white",
+    ghost:
+      "bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 text-foreground",
+    outline:
+      "border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800",
+    subtle:
+      "bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700",
+  };
+  const s = {
+    md: "h-9 px-3 text-sm",
+    sm: "h-8 px-2.5 text-xs",
+    lg: "h-10 px-4 text-sm",
+  };
   return (
-    <div
-      className={`rounded-xl border border-neutral-800 bg-neutral-900/30 p-3 ${
-        selected ? "ring-1 ring-neutral-600" : ""
-      }`}
+    <button
+      className={cx(
+        "inline-flex items-center gap-2 rounded-lg font-medium transition-colors",
+        v[variant],
+        s[size],
+        className
+      )}
+      {...props}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-sm">
-          <div className="font-medium">{row.shipper || "-"}</div>
-          <div className="text-neutral-400">
-            {row.origin || "-"} → {row.destination || "-"}
-          </div>
-          <div className="mt-1">
-            <StatusBadge status={row.status} />
-          </div>
+      {children}
+    </button>
+  );
+}
+
+/* ----------------------------- helper utilities ----------------------------- */
+
+function useDebouncedValue(value, delay = 350) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return v;
+}
+
+function formatMoney(n) {
+  if (n == null || n === "") return "—";
+  const num = typeof n === "string" ? parseFloat(n) : n;
+  if (isNaN(num)) return "—";
+  return num.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
+}
+
+function statusIntent(s) {
+  switch ((s || "").toUpperCase()) {
+    case "AVAILABLE":
+      return "blue";
+    case "IN_TRANSIT":
+      return "amber";
+    case "DELIVERED":
+      return "green";
+    case "PROBLEM":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
+/* ---------------------------------- page ---------------------------------- */
+
+export default function LoadsPage() {
+  // table data
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshTs, setRefreshTs] = useState(0);
+
+  // filters/search
+  const [statusFilter, setStatusFilter] = useState("ALL"); // ALL | AVAILABLE | IN_TRANSIT | DELIVERED | PROBLEM
+  const [dispatcher, setDispatcher] = useState("");
+  const [search, setSearch] = useState("");
+  const [pickupFrom, setPickupFrom] = useState("");
+  const [pickupTo, setPickupTo] = useState("");
+  const searchQ = useDebouncedValue(search, 400);
+
+  // selection/bulk
+  const [selected, setSelected] = useState(new Set());
+
+  // inline rate editing
+  const [editingRateId, setEditingRateId] = useState(null);
+  const [editingRate, setEditingRate] = useState("");
+  const fileInputsRef = useRef({}); // { [loadId]: inputRef }
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      let q = supabase
+        .from("loads")
+        .select(
+          `
+          id,
+          shipper,
+          origin,
+          destination,
+          pickup_date,
+          delivery_date,
+          dispatcher,
+          rate,
+          status,
+          pod_url
+        `
+        )
+        .limit(2000)
+        .order("pickup_date", { ascending: true, nullsFirst: true });
+
+      if (statusFilter !== "ALL") q = q.eq("status", statusFilter);
+      if (dispatcher) q = q.ilike("dispatcher", `%${dispatcher}%`);
+      if (pickupFrom) q = q.gte("pickup_date", pickupFrom);
+      if (pickupTo) q = q.lte("pickup_date", pickupTo);
+
+      if (searchQ) {
+        q = q.or(
+          `shipper.ilike.%${searchQ}%,origin.ilike.%${searchQ}%,destination.ilike.%${searchQ}%`
+        );
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      setRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("loads fetch error:", err.message || err);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, dispatcher, pickupFrom, pickupTo, searchQ]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData, refreshTs]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel("loads_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => setRefreshTs((t) => t + 1)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
+
+  const kpis = useMemo(() => {
+    const total = rows.length;
+    const byStatus = rows.reduce(
+      (acc, r) => {
+        const s = (r.status || "UNKNOWN").toUpperCase();
+        acc[s] = (acc[s] || 0) + 1;
+        return acc;
+      },
+      { AVAILABLE: 0, IN_TRANSIT: 0, DELIVERED: 0, PROBLEM: 0 }
+    );
+    const revenue = rows.reduce(
+      (sum, r) => sum + (parseFloat(r.rate) || 0),
+      0
+    );
+    return {
+      total,
+      available: byStatus.AVAILABLE || 0,
+      inTransit: byStatus.IN_TRANSIT || 0,
+      delivered: byStatus.DELIVERED || 0,
+      problem: byStatus.PROBLEM || 0,
+      revenue,
+    };
+  }, [rows]);
+
+  /* ------------------------------- interactions ------------------------------- */
+
+  function toggleSelectAll() {
+    if (selected.size === rows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((r) => r.id)));
+    }
+  }
+
+  function toggleSelect(id) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  async function bulkUpdateStatus(nextStatus) {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    const { error } = await supabase
+      .from("loads")
+      .update({ status: nextStatus })
+      .in("id", ids);
+    if (!error) {
+      setSelected(new Set());
+      setRefreshTs((t) => t + 1);
+    } else {
+      console.error(error);
+    }
+  }
+
+  function startEditRate(row) {
+    setEditingRateId(row.id);
+    setEditingRate(row.rate ?? "");
+  }
+  async function saveRate(id) {
+    const parsed = parseFloat(editingRate || "0");
+    const { error } = await supabase
+      .from("loads")
+      .update({ rate: isNaN(parsed) ? null : parsed })
+      .eq("id", id);
+    if (!error) {
+      setEditingRateId(null);
+      setEditingRate("");
+      setRefreshTs((t) => t + 1);
+    } else {
+      console.error(error);
+    }
+  }
+
+  function triggerUpload(loadId) {
+    const ref = fileInputsRef.current[loadId];
+    if (ref) ref.click();
+  }
+
+  async function handleFile(loadId, file) {
+    if (!file) return;
+    try {
+      const path = `pods/${loadId}/${Date.now()}_${file.name}`;
+      const up = await supabase.storage.from("pods").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+      if (up.error) throw up.error;
+
+      const publicUrl = supabase.storage.from("pods").getPublicUrl(path).data
+        .publicUrl;
+
+      const { error } = await supabase
+        .from("loads")
+        .update({ pod_url: publicUrl })
+        .eq("id", loadId);
+      if (error) throw error;
+      setRefreshTs((t) => t + 1);
+    } catch (e) {
+      console.error("POD upload error:", e.message || e);
+    }
+  }
+
+  /* --------------------------------- render --------------------------------- */
+
+  return (
+    // Use a neutral container that respects dark mode globally
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 text-sm bg-transparent">
+      {/* header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Loads
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Manage active and historical loads
+          </p>
         </div>
-        <button
-          onClick={onToggle}
-          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-xs"
-        >
-          {selected ? "Selected" : "Select"}
-        </button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setRefreshTs((t) => t + 1)}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-neutral-400 text-xs mb-1">Pickup</div>
-          <div>
-            {row.pickup_date
-              ? new Date(row.pickup_date).toLocaleDateString()
-              : "-"}
+      {/* KPI bar */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Kpi title="Total Loads" value={kpis.total} />
+        <Kpi title="Available" value={kpis.available} tone="blue" />
+        <Kpi title="In Transit" value={kpis.inTransit} tone="amber" />
+        <Kpi title="Delivered" value={kpis.delivered} tone="green" />
+        <Kpi title="Total Revenue" value={formatMoney(kpis.revenue)} />
+      </div>
+
+      {/* filters */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 sm:p-4 shadow-sm">
+        <div className="flex flex-col gap-3">
+          {/* STATUS TABS: scrollable + wrap-safe */}
+          <div className="min-w-0">
+            <div className="flex gap-2 overflow-x-auto overscroll-x-contain snap-x snap-mandatory [-ms-overflow-style:none] [scrollbar-width:none]"
+                 style={{ WebkitOverflowScrolling: "touch" }}>
+              {/* hide scrollbar (keeps accessibility) */}
+              <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
+              {["ALL", "AVAILABLE", "IN_TRANSIT", "DELIVERED", "PROBLEM"].map(
+                (s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={cx(
+                      "snap-start shrink-0 rounded-full px-3 h-8 text-xs font-semibold border",
+                      statusFilter === s
+                        ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent"
+                        : "text-foreground border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    )}
+                  >
+                    {s.replace("_", " ")}
+                  </button>
+                )
+              )}
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-neutral-400 text-xs mb-1">Delivery</div>
-          <div>
-            {row.delivery_date
-              ? new Date(row.delivery_date).toLocaleDateString()
-              : "-"}
+
+          {/* search + advanced filters */}
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+            <div className="relative w-full lg:w-80">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-zinc-500" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search shipper, origin, destination"
+                className="w-full pl-8 h-9 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-foreground placeholder:text-zinc-500"
+              />
+            </div>
+            <div className="flex-1" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Filter className="h-4 w-4 text-zinc-500" />
+              <input
+                type="text"
+                value={dispatcher}
+                onChange={(e) => setDispatcher(e.target.value)}
+                placeholder="Dispatcher"
+                className="w-40 h-9 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+              />
+              <input
+                type="date"
+                value={pickupFrom}
+                onChange={(e) => setPickupFrom(e.target.value)}
+                className="h-9 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+              />
+              <span className="text-zinc-500 text-xs">to</span>
+              <input
+                type="date"
+                value={pickupTo}
+                onChange={(e) => setPickupTo(e.target.value)}
+                className="h-9 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDispatcher("");
+                  setPickupFrom("");
+                  setPickupTo("");
+                  setSearch("");
+                }}
+              >
+                Clear
+              </Button>
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-neutral-400 text-xs mb-1">Dispatcher</div>
-          <EditableCell
-            value={row.dispatcher}
-            placeholder="-"
-            onSave={(val) =>
-              onUpdate(row.id, { dispatcher: val.trim() || null })
-            }
-          />
-        </div>
-        <div>
-          <div className="text-neutral-400 text-xs mb-1">Rate</div>
-          <EditableCell
-            value={row.rate}
-            type="number"
-            placeholder="-"
-            onSave={(val) =>
-              onUpdate(row.id, {
-                rate: val === "" || val === null ? null : Number(val),
-              })
-            }
-          />
+
+          {/* bulk actions */}
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2">
+              <Badge intent="gray" className="uppercase">
+                {selected.size} selected
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => bulkUpdateStatus("DELIVERED")}
+              >
+                <CheckSquare className="h-4 w-4" />
+                Mark Delivered
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => bulkUpdateStatus("IN_TRANSIT")}
+              >
+                <MinusSquare className="h-4 w-4" />
+                Mark In Transit
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          title="Mark In Transit"
-          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-sm"
-          onClick={() => onUpdate(row.id, { status: "IN_TRANSIT" })}
-        >
-          <div className="inline-flex items-center gap-1">
-            <Truck className="h-4 w-4" />
-            In Transit
-          </div>
-        </button>
-        <button
-          title="Mark Delivered"
-          className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1 hover:bg-neutral-900 text-sm"
-          onClick={() => onUpdate(row.id, { status: "DELIVERED" })}
-        >
-          <div className="inline-flex items-center gap-1">
-            <CheckCheck className="h-4 w-4" />
-            Delivered
-          </div>
-        </button>
-      </div>
+      {/* table */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-900 shadow-sm">
+        <div className="overflow-auto">
+          <table className="min-w-[960px] w-full text-sm">
+            <thead className="sticky top-0 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+              <tr className="text-left">
+                <Th>
+                  <input
+                    type="checkbox"
+                    checked={selected.size === rows.length && rows.length > 0}
+                    onChange={toggleSelectAll}
+                  />
+                </Th>
+                <Th>Shipper</Th>
+                <Th>Origin</Th>
+                <Th>Destination</Th>
+                <Th>Pickup</Th>
+                <Th>Delivery</Th>
+                <Th>Dispatcher</Th>
+                <Th className="text-right">Rate</Th>
+                <Th>Status</Th>
+                <Th className="text-right">Actions</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              {loading ? (
+                <tr>
+                  <td colSpan={10} className="py-8 text-center">
+                    <Loader2 className="inline h-5 w-5 animate-spin mr-2" />
+                    Loading loads…
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-10 text-center text-zinc-500">
+                    No loads match your filters.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50"
+                  >
+                    <Td>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                      />
+                    </Td>
+                    <Td className="font-medium">{r.shipper ?? "—"}</Td>
+                    <Td>{r.origin ?? "—"}</Td>
+                    <Td>{r.destination ?? "—"}</Td>
+                    <Td>{r.pickup_date ?? "—"}</Td>
+                    <Td>{r.delivery_date ?? "—"}</Td>
+                    <Td>{r.dispatcher ?? "—"}</Td>
 
-      <div className="mt-2 text-xs text-neutral-400">
-        {row.created_at ? new Date(row.created_at).toLocaleString() : "-"}
+                    {/* Rate with inline edit */}
+                    <Td className="text-right">
+                      {editingRateId === r.id ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <input
+                            autoFocus
+                            value={editingRate}
+                            onChange={(e) => setEditingRate(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveRate(r.id);
+                              if (e.key === "Escape") setEditingRateId(null);
+                            }}
+                            className="w-28 h-8 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 text-right"
+                          />
+                          <Button
+                            size="sm"
+                            variant="subtle"
+                            onClick={() => saveRate(r.id)}
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="subtle"
+                            onClick={() => setEditingRateId(null)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <button
+                          className="inline-flex items-center gap-1 hover:underline"
+                          onClick={() => startEditRate(r)}
+                          title="Edit rate"
+                        >
+                          {formatMoney(r.rate)}
+                          <PencilLine className="h-3.5 w-3.5 text-zinc-500" />
+                        </button>
+                      )}
+                    </Td>
+
+                    <Td>
+                      <Badge intent={statusIntent(r.status)}>
+                        {String(r.status || "—")
+                          .replace("_", " ")
+                          .toUpperCase()}
+                      </Badge>
+                    </Td>
+
+                    <Td className="text-right">
+                      <input
+                        ref={(el) => (fileInputsRef.current[r.id] = el)}
+                        type="file"
+                        className="hidden"
+                        onChange={(e) =>
+                          handleFile(r.id, e.target.files?.[0] || null)
+                        }
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => triggerUpload(r.id)}
+                        title={
+                          r.pod_url ? "Replace POD file" : "Upload POD (PDF/JPG)"
+                        }
+                      >
+                        <UploadCloud className="h-4 w-4" />
+                        {r.pod_url ? "Replace POD" : "Upload POD"}
+                      </Button>
+                    </Td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------- subcomponents ------------------------------ */
+
+function Th({ className = "", children }) {
+  return (
+    <th
+      className={cx(
+        "px-3 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300",
+        className
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ className = "", children }) {
+  return <td className={cx("px-3 py-3 text-foreground", className)}>{children}</td>;
+}
+
+function Kpi({ title, value, tone = "default" }) {
+  const toneCls = {
+    default:
+      "bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800",
+    blue: "bg-blue-50/70 dark:bg-blue-950/40 border-blue-200/60 dark:border-blue-900/40",
+    amber:
+      "bg-amber-50/70 dark:bg-amber-950/40 border-amber-200/60 dark:border-amber-900/40",
+    green:
+      "bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40",
+  }[tone];
+
+  return (
+    <div className={cx("rounded-xl border p-3 sm:p-4 shadow-sm", toneCls)}>
+      <div className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        {title}
+      </div>
+      <div className="text-xl mt-1 font-semibold text-foreground">{value}</div>
     </div>
   );
 }

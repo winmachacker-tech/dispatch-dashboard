@@ -12,7 +12,7 @@ export default function MainLayout() {
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar />
         <main className="flex-1 min-w-0">
-          <div className="container-app px-4 sm:px-6 lg:px-8 py-6">
+          <div className="container mx-auto max-w-7xl p-6">
             <Outlet />
           </div>
         </main>

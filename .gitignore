@@ -29,3 +29,13 @@ Thumbs.db
 /.tmp.driveupload/
 
 .tmp.driveupload/
+# Local backups
+/.tmp.backup/
+# 3) Stop tracking volatile Supabase temp files + your local backups
+#    (add to .gitignore and unstage any already staged temp files)
+ = @"
+# Local backups
+/.tmp.backup/
+
+# Supabase CLI temp cache
+/supabase/.temp/
